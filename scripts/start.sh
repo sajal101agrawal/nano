@@ -8,7 +8,7 @@ echo "[start] Initialising S3 bucket..."
 node /app/scripts/init-bucket.js
 
 echo "[start] Starting background worker..."
-node /app/src/worker/index.js &
+node /app/src/worker/dist/index.js &
 WORKER_PID=$!
 
 echo "[start] Starting Next.js server..."

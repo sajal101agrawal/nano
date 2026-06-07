@@ -36,7 +36,9 @@ const CANDIDATE_COLS = `
 `;
 
 // Minimum cosine similarity threshold for vector search results (0-1 scale)
-const MIN_VECTOR_SCORE = 0.3;
+// OpenAI embeddings typically produce lower scores (10-30%) for query-to-document matching
+// 0.1 filters out only the most irrelevant candidates while keeping reasonable matches
+const MIN_VECTOR_SCORE = 0.1;
 
 export async function GET(req: NextRequest) {
   try {

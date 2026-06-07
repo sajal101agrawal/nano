@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "outDir": "./src/worker/dist",
+    "rootDir": "./src/worker",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "moduleResolution": "node"
+  },
+  "include": ["src/worker/**/*.ts"],
+  "exclude": ["node_modules", "src/worker/dist"]
+}
