@@ -54,6 +54,17 @@ const SELECT_COLS = `
 // OpenAI embeddings typically produce lower scores (10-30%) for query-to-document matching
 const MIN_VECTOR_SCORE = 0.05;
 
+// Convert search query to PostgreSQL tsquery format (word1 & word2 & ...)
+function toTsQuery(q: string): string {
+  return q
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(w => w.length > 1)
+    .map(w => w.replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean)
+    .join(' & ');
+}
+
 async function getCandidatesHybridSearch(
   q: string,
   sp: ResolvedSP
@@ -73,10 +84,12 @@ async function getCandidatesHybridSearch(
   }
 
   const vectorStr = `[${embedding.join(",")}]`;
+  const tsQuery = toTsQuery(q);
+  const searchWords = q.toLowerCase().split(/\s+/).filter(w => w.length > 1);
 
   // Build filter conditions
   const filterConditions: string[] = ["c.status != 'deleted'", "cp.is_current = TRUE"];
-  const filterParams: unknown[] = [vectorStr, q]; // $1 = vector, $2 = search query
+  const filterParams: unknown[] = [vectorStr, tsQuery]; // $1 = vector, $2 = tsquery string
 
   if (availability) {
     filterParams.push(availability);
@@ -92,9 +105,21 @@ async function getCandidatesHybridSearch(
 
   const where = filterConditions.join(" AND ");
 
+  // Build word-based ILIKE conditions for each search word
+  const wordMatchConditions = searchWords.map((_, i) => 
+    `cp.summary ILIKE '%' || $${filterParams.length + 1 + i} || '%' OR cp.parsed_json::text ILIKE '%' || $${filterParams.length + 1 + i} || '%'`
+  ).join(' OR ');
+  
+  const skillMatchConditions = searchWords.map((_, i) =>
+    `cs.skill ILIKE '%' || $${filterParams.length + 1 + i} || '%'`
+  ).join(' OR ');
+
+  // Add search words as parameters
+  filterParams.push(...searchWords);
+
   // Hybrid search: combines vector similarity with text matching
   // - vector_score: semantic similarity (0-1)
-  // - text_match: bonus for direct text matches in summary/parsed content
+  // - text_match: bonus for word matches in summary/parsed content (using full-text search OR individual word ILIKE)
   // - skill_match: bonus for matching skills
   const hybridSql = `
     WITH scored AS (
@@ -102,16 +127,16 @@ async function getCandidatesHybridSearch(
         c.id AS candidate_id,
         1 - (cp.embedding <=> $1::vector) AS vector_score,
         CASE 
-          WHEN cp.summary ILIKE '%' || $2 || '%' THEN 0.3
-          WHEN cp.parsed_json::text ILIKE '%' || $2 || '%' THEN 0.2
+          WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.4
+          WHEN ${wordMatchConditions ? `(${wordMatchConditions})` : 'FALSE'} THEN 0.25
           ELSE 0
         END AS text_bonus,
         CASE
           WHEN EXISTS (
             SELECT 1 FROM candidate_skills cs 
             WHERE cs.candidate_id = c.id 
-            AND (cs.skill ILIKE '%' || $2 || '%' OR cs.skill_normalized % lower($2))
-          ) THEN 0.2
+            AND (${skillMatchConditions ? `(${skillMatchConditions})` : 'FALSE'})
+          ) THEN 0.25
           ELSE 0
         END AS skill_bonus
       FROM candidate_profiles cp
@@ -146,16 +171,16 @@ async function getCandidatesHybridSearch(
         c.id AS candidate_id,
         1 - (cp.embedding <=> $1::vector) AS vector_score,
         CASE 
-          WHEN cp.summary ILIKE '%' || $2 || '%' THEN 0.3
-          WHEN cp.parsed_json::text ILIKE '%' || $2 || '%' THEN 0.2
+          WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.4
+          WHEN ${wordMatchConditions ? `(${wordMatchConditions})` : 'FALSE'} THEN 0.25
           ELSE 0
         END AS text_bonus,
         CASE
           WHEN EXISTS (
             SELECT 1 FROM candidate_skills cs 
             WHERE cs.candidate_id = c.id 
-            AND (cs.skill ILIKE '%' || $2 || '%' OR cs.skill_normalized % lower($2))
-          ) THEN 0.2
+            AND (${skillMatchConditions ? `(${skillMatchConditions})` : 'FALSE'})
+          ) THEN 0.25
           ELSE 0
         END AS skill_bonus
       FROM candidate_profiles cp

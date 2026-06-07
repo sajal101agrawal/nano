@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 // Ensures the S3 bucket exists — idempotent, safe to run on every boot.
-// For production (R2/S3), this is best-effort and won't block startup.
 require("dotenv").config();
 
 const { S3Client, CreateBucketCommand, HeadBucketCommand } = require("@aws-sdk/client-s3");
@@ -14,13 +13,7 @@ if (!endpoint) {
   process.exit(0);
 }
 
-// For non-local endpoints (R2, S3), assume bucket exists and skip init
-// These services require pre-created buckets via their dashboards
-const isLocalEndpoint = endpoint.includes("localhost") || endpoint.includes("minio") || endpoint.includes("127.0.0.1");
-if (!isLocalEndpoint) {
-  console.log(`[init-bucket] Using external S3 (${endpoint}), assuming bucket "${bucket}" exists.`);
-  process.exit(0);
-}
+console.log(`[init-bucket] Connecting to ${endpoint}, bucket: ${bucket}`);
 
 const s3 = new S3Client({
   region,
@@ -33,7 +26,7 @@ const s3 = new S3Client({
 });
 
 async function ensureBucket() {
-  let retries = 15;
+  let retries = 30; // More retries for Railway internal networking
   while (retries > 0) {
     try {
       await s3.send(new HeadBucketCommand({ Bucket: bucket }));
@@ -42,22 +35,34 @@ async function ensureBucket() {
     } catch (err) {
       const code = err?.name || err?.Code || "";
       if (code === "NotFound" || code === "NoSuchBucket" || err?.$metadata?.httpStatusCode === 404) {
-        await s3.send(new CreateBucketCommand({ Bucket: bucket }));
-        console.log(`[init-bucket] Bucket "${bucket}" created.`);
-        return;
+        try {
+          await s3.send(new CreateBucketCommand({ Bucket: bucket }));
+          console.log(`[init-bucket] Bucket "${bucket}" created.`);
+          return;
+        } catch (createErr) {
+          // Bucket might have been created by another instance
+          if (createErr?.name === "BucketAlreadyOwnedByYou" || createErr?.name === "BucketAlreadyExists") {
+            console.log(`[init-bucket] Bucket "${bucket}" already exists (race condition).`);
+            return;
+          }
+          throw createErr;
+        }
       }
       retries--;
       if (retries === 0) {
-        console.error("[init-bucket] Could not reach S3/MinIO:", err?.message || err);
-        process.exit(1);
+        // Don't fail startup if MinIO is temporarily unavailable
+        console.warn("[init-bucket] Could not reach S3/MinIO after retries, continuing anyway:", err?.message || err);
+        console.warn("[init-bucket] The app will work once MinIO becomes available.");
+        return;
       }
       console.log(`[init-bucket] Waiting for S3/MinIO... (${retries} retries left)`);
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 }
 
 ensureBucket().catch((err) => {
-  console.error("[init-bucket] Fatal:", err);
-  process.exit(1);
+  // Don't block startup on S3 init failure
+  console.warn("[init-bucket] Warning:", err?.message || err);
+  console.warn("[init-bucket] Continuing startup without bucket verification.");
 });
