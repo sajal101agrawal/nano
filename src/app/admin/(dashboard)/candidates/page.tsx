@@ -215,7 +215,7 @@ async function getCandidates(sp: ResolvedSP): Promise<{
 
 export default async function CandidatesPage({ searchParams }: PageProps) {
   const sp = await searchParams;
-  const { rows, total, page, totalPages } = await getCandidates(sp);
+  const { rows, total, page, totalPages, isVectorSearch } = await getCandidates(sp);
   const hasFilters = !!(sp.q || sp.availability || sp.contract || sp.min_experience);
 
   return (
@@ -223,7 +223,14 @@ export default async function CandidatesPage({ searchParams }: PageProps) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="section-title">Candidate Pool</h1>
-          <p className="section-subtitle">{total} {hasFilters ? "matching" : "total"} candidates</p>
+          <p className="section-subtitle">
+            {total} {hasFilters ? "matching" : "total"} candidates
+            {isVectorSearch && sp.q && (
+              <span className="ml-2 text-xs font-normal text-text-muted bg-bg-hover px-1.5 py-0.5 rounded">
+                semantic search
+              </span>
+            )}
+          </p>
         </div>
       </div>
 
