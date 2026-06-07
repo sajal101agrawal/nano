@@ -31,7 +31,7 @@ Nano is a full-stack staff augmentation talent platform. It combines a public-fa
 | Authentication | JWT via jose, Argon2 password hashing, TOTP 2FA |
 | Styling | Tailwind CSS 3 + Radix UI primitives |
 | PDF Generation | @react-pdf/renderer, PDFKit |
-| Background Worker | Standalone Node.js process (tsx), BullMQ |
+| Background Worker | BullMQ (runs alongside Next.js in production) |
 
 ---
 
@@ -71,26 +71,26 @@ nano/
 │   │   ├── queue.ts                # BullMQ queue definitions + enqueue helpers
 │   │   ├── redis.ts                # Redis client + rate limiting
 │   │   └── storage.ts              # S3 upload / signed URL / delete
+│   ├── worker/
+│   │   ├── index.ts                # Worker entry point (all BullMQ workers)
+│   │   ├── redis.ts                # Redis connection helper for workers
+│   │   ├── scheduler.ts            # Cron job registration
+│   │   └── processors/
+│   │       ├── cvParse.ts          # CV download → text extract → Claude parse → embed
+│   │       ├── match.ts            # Vector search → rule scoring → Claude re-rank
+│   │       ├── availability.ts     # Send/expire availability tokens, bulk checks
+│   │       ├── email.ts            # Send queued outreach emails via Resend
+│   │       └── draftReminder.ts    # Draft abandonment reminders + expiry
 │   ├── types/index.ts              # Shared TypeScript types
 │   └── proxy.ts                    # Next.js middleware (admin auth guard)
-├── worker/
-│   └── src/
-│       ├── index.ts                # Worker entry point (all BullMQ workers)
-│       ├── scheduler.ts            # Cron job registration
-│       └── processors/
-│           ├── cvParse.ts          # CV download → text extract → Claude parse → embed
-│           ├── match.ts            # Vector search → rule scoring → Claude re-rank
-│           ├── availability.ts     # Send/expire availability tokens, bulk checks
-│           ├── email.ts            # Send queued outreach emails via Resend
-│           └── draftReminder.ts    # Draft abandonment reminders + expiry
 ├── migrations/                     # SQL migration files (run in order)
 ├── scripts/
 │   ├── migrate.js                  # Migration runner
 │   ├── seed.js                     # Admin user seed
+│   ├── start.sh                    # Production startup (migrations + app + worker)
 │   └── init-db.sql                 # Docker entrypoint init
-├── docker-compose.yml              # Local infra: Postgres, Redis, MinIO (+ app/worker)
-├── Dockerfile                      # Next.js app container
-├── Dockerfile.worker               # Worker container
+├── docker-compose.yml              # Local infra: Postgres, Redis, MinIO
+├── Dockerfile                      # Production container (Next.js + worker)
 ├── start.sh                        # One-command local dev start
 └── .env.example                    # All environment variables documented
 ```
@@ -151,9 +151,12 @@ npm run db:migrate
 # Seed admin
 npm run db:seed
 
-# In two separate terminals:
-npm run dev
-npm run worker:dev
+# Start both app and worker in development mode
+npm run dev:all
+
+# Or run them separately in two terminals:
+npm run dev         # Next.js app
+npm run dev:worker  # Background worker
 ```
 
 ---
@@ -197,10 +200,11 @@ See `.env.example` for the full reference. Key variables:
 | Script | Description |
 |---|---|
 | `npm run dev` | Next.js dev server with hot reload |
+| `npm run dev:worker` | Worker with tsx watch (hot reload) |
+| `npm run dev:all` | Start both app and worker in dev mode (uses concurrently) |
 | `npm run build` | Production build |
 | `npm run start` | Start production server |
-| `npm run worker:dev` | Worker with tsx watch (hot reload) |
-| `npm run worker:start` | Start compiled worker (production) |
+| `npm run worker` | Start worker (production) |
 | `npm run db:migrate` | Run pending SQL migrations |
 | `npm run db:seed` | Seed initial admin account |
 | `npm run test` | Run Jest tests |
@@ -220,12 +224,11 @@ docker-compose up --build
 docker-compose up -d postgres redis minio
 ```
 
-The `docker-compose.yml` includes:
+The production Docker setup runs both the Next.js app and the background worker in a single container. The `docker-compose.yml` includes:
 - `nano_postgres` — pgvector/pgvector:pg16 on port 5433
 - `nano_redis` — redis:7-alpine on port 6380
 - `nano_minio` — MinIO on ports 9000/9001
-- `nano_app` — Next.js app on port 3000
-- `nano_worker` — BullMQ worker (no exposed port)
+- `nano_app` — Next.js app + worker on port 3000
 
 ---
 

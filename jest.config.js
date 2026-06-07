@@ -2,7 +2,7 @@
 const config = {
   preset: "ts-jest",
   testEnvironment: "node",
-  roots: ["<rootDir>/src", "<rootDir>/worker"],
+  roots: ["<rootDir>/src"],
   testMatch: ["**/__tests__/**/*.test.ts", "**/*.test.ts"],
   transform: {
     "^.+\\.tsx?$": [
@@ -23,7 +23,7 @@ const config = {
   },
   collectCoverageFrom: [
     "src/lib/**/*.ts",
-    "worker/src/**/*.ts",
+    "src/worker/**/*.ts",
     "!**/*.d.ts",
     "!**/node_modules/**",
   ],

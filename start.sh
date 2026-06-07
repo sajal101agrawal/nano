@@ -147,15 +147,13 @@ if [ "$MODE" = "prod" ]; then
   npm run start &
   APP_PID=$!
   log_info "Starting worker (production)..."
-  node -r tsx/cjs worker/src/index.ts &
+  npm run worker &
   WORKER_PID=$!
 else
-  log_info "Starting app (development)..."
-  npm run dev &
+  log_info "Starting app and worker (development)..."
+  npm run dev:all &
   APP_PID=$!
-  log_info "Starting worker (development)..."
-  npx tsx watch worker/src/index.ts &
-  WORKER_PID=$!
+  WORKER_PID=$APP_PID
 fi
 
 log_ok ""

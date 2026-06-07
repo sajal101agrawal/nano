@@ -78,25 +78,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    container_name: nano_worker
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://nano_user:nano_pass@postgres:5432/nano_db
-      REDIS_URL: redis://redis:6379
-      S3_ENDPOINT: http://minio:9000
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    restart: unless-stopped
-
 volumes:
   postgres_data:
   redis_data:

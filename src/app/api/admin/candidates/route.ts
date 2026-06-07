@@ -35,6 +35,9 @@ const CANDIDATE_COLS = `
   )::text AS raw_skills
 `;
 
+// Minimum cosine similarity threshold for vector search results (0-1 scale)
+const MIN_VECTOR_SCORE = 0.3;
+
 export async function GET(req: NextRequest) {
   try {
     await requireAdminSession();
@@ -92,20 +95,29 @@ export async function GET(req: NextRequest) {
              FROM ranked r
              JOIN candidates c ON c.id = r.candidate_id
              LEFT JOIN candidate_profiles cp ON cp.candidate_id = c.id AND cp.is_current = TRUE
+             WHERE r.vector_score >= ${MIN_VECTOR_SCORE}
              ORDER BY r.vector_score DESC
              LIMIT $${vecParams.length + 1} OFFSET $${vecParams.length + 2}`,
             [...vecParams, limit, offset]
           ),
           query<{ count: string }>(
-            `SELECT COUNT(*) AS count
-             FROM candidate_profiles cp
-             JOIN candidates c ON c.id = cp.candidate_id
-             WHERE ${vecWhere}`,
+            `WITH ranked AS (
+               SELECT c.id AS candidate_id,
+                      1 - (cp.embedding <=> $1::vector) AS vector_score
+               FROM candidate_profiles cp
+               JOIN candidates c ON c.id = cp.candidate_id
+               WHERE ${vecWhere}
+               ORDER BY cp.embedding <=> $1::vector
+               LIMIT 200
+             )
+             SELECT COUNT(*) AS count
+             FROM ranked
+             WHERE vector_score >= ${MIN_VECTOR_SCORE}`,
             vecParams
           ),
         ]);
 
-        const total = Math.min(parseInt(countRows[0]?.count || "0"), 200);
+        const total = parseInt(countRows[0]?.count || "0");
         const data: CandidateListItem[] = rows.map((r) => ({
           ...r,
           skills: (() => {

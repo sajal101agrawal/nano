@@ -50,6 +50,10 @@ const SELECT_COLS = `
   ) AS raw_skills
 `;
 
+// Minimum cosine similarity threshold for vector search results (0-1 scale)
+// 0.3 filters out clearly irrelevant candidates while keeping reasonable matches
+const MIN_VECTOR_SCORE = 0.3;
+
 async function getCandidatesVectorSearch(
   q: string,
   sp: ResolvedSP
@@ -96,8 +100,8 @@ async function getCandidatesVectorSearch(
   }
 
   const where = filterConditions.join(" AND ");
-  const countWhere = countConditions.join(" AND ");
 
+  // Vector search with minimum similarity threshold
   const vectorSql = `
     WITH ranked AS (
       SELECT
@@ -114,23 +118,34 @@ async function getCandidatesVectorSearch(
     FROM ranked r
     JOIN candidates c ON c.id = r.candidate_id
     LEFT JOIN candidate_profiles cp ON cp.candidate_id = c.id AND cp.is_current = TRUE
+    WHERE r.vector_score >= ${MIN_VECTOR_SCORE}
     ORDER BY r.vector_score DESC
     LIMIT $${filterParams.length + 1} OFFSET $${filterParams.length + 2}
   `;
 
+  // Count only candidates above the similarity threshold
   const countSql = `
+    WITH ranked AS (
+      SELECT
+        c.id AS candidate_id,
+        1 - (cp.embedding <=> $1::vector) AS vector_score
+      FROM candidate_profiles cp
+      JOIN candidates c ON c.id = cp.candidate_id
+      WHERE ${where}
+      ORDER BY cp.embedding <=> $1::vector
+      LIMIT 200
+    )
     SELECT COUNT(*) AS count
-    FROM candidate_profiles cp
-    JOIN candidates c ON c.id = cp.candidate_id
-    WHERE ${countWhere}
+    FROM ranked
+    WHERE vector_score >= ${MIN_VECTOR_SCORE}
   `;
 
   const [rows, countRows] = await Promise.all([
     query<CandidateRow & { vector_score: number }>(vectorSql, [...filterParams, limit, offset]),
-    query<{ count: string }>(countSql, countParams),
+    query<{ count: string }>(countSql, filterParams),
   ]);
 
-  const total = Math.min(parseInt(countRows[0]?.count || "0"), 200);
+  const total = parseInt(countRows[0]?.count || "0");
 
   return {
     rows,

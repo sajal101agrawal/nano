@@ -12,7 +12,9 @@ import type { ConnectionOptions } from "bullmq";
 export function getRedisConnection(): ConnectionOptions {
   // Railway injects these individual vars from the Redis plugin
   if (process.env.REDISHOST) {
-    console.log(`[redis] Using REDISHOST=${process.env.REDISHOST}:${process.env.REDISPORT || "6379"}`);
+    const hasPassword = !!process.env.REDISPASSWORD;
+    const hasUsername = !!process.env.REDISUSER;
+    console.log(`[redis] Using REDISHOST host=${process.env.REDISHOST}:${process.env.REDISPORT || "6379"} hasPassword=${hasPassword} hasUsername=${hasUsername}`);
     const opts: Record<string, unknown> = {
       host: process.env.REDISHOST,
       port: parseInt(process.env.REDISPORT || "6379"),
@@ -25,7 +27,9 @@ export function getRedisConnection(): ConnectionOptions {
   // Fall back to REDIS_URL
   const raw = process.env.REDIS_URL || "redis://localhost:6379";
   const url = new URL(raw);
-  console.log(`[redis] Using REDIS_URL host=${url.hostname} hasPassword=${!!url.password} hasUsername=${!!url.username}`);
+  const hasPassword = !!url.password;
+  const hasUsername = !!url.username;
+  console.log(`[redis] Using REDIS_URL host=${url.hostname} hasPassword=${hasPassword} hasUsername=${hasUsername}`);
   const opts: Record<string, unknown> = {
     host: url.hostname,
     port: parseInt(url.port || "6379"),
