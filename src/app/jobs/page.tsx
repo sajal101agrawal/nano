@@ -83,7 +83,7 @@ export default async function JobsPage() {
               We are always looking for great people. Check back soon or reach out directly.
             </p>
             <a
-              href="mailto:careers@sajaltech.com"
+              href="mailto:contact@sajaltech.com"
               className="btn btn-secondary btn-sm inline-flex"
             >
               Get in touch
