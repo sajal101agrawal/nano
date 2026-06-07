@@ -61,9 +61,12 @@ export default async function RequirementDetailPage({
               COALESCE(c.full_name, c.primary_email, 'Unknown') AS candidate_name,
               COALESCE(c.primary_email, '') AS candidate_email,
               c.availability_status AS candidate_availability,
-              COALESCE(c.headline, '') AS candidate_headline
+              COALESCE(c.headline, '') AS candidate_headline,
+              COALESCE(a.match_score, m.score) AS match_score,
+              COALESCE(a.match_rationale, m.rationale) AS match_rationale
        FROM applications a
        JOIN candidates c ON c.id = a.candidate_id
+       LEFT JOIN matches m ON m.requirement_id = a.requirement_id AND m.candidate_id = a.candidate_id
        WHERE a.requirement_id = $1
        ORDER BY a.applied_at DESC`,
       [id]

@@ -4,7 +4,7 @@ import NewRequirementForm from "./NewRequirementForm";
 import Link from "next/link";
 import type { Client } from "@/types";
 
-export const metadata = { title: "New Requirement — Nano" };
+export const metadata = { title: "New Requirement" };
 
 export default async function NewRequirementPage() {
   await requireAdminSession();

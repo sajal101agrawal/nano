@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Background: rounded square matching brand vivid blue -->
+  <rect width="64" height="64" rx="13" fill="#0091FF"/>
+
+  <!-- Subtle inner glow layer -->
+  <rect width="64" height="64" rx="13" fill="url(#glow)" opacity="0.4"/>
+
+  <!-- Bold "S" — centered, white, bold tech font weight -->
+  <text
+    x="33"
+    y="45"
+    font-family="Arial Black, Helvetica Neue, Arial, sans-serif"
+    font-size="44"
+    font-weight="900"
+    text-anchor="middle"
+    fill="#ffffff"
+  >S</text>
+
+  <!-- Horizontal speed lines (bottom-right corner, mirrors logo accent) -->
+  <rect x="42" y="52" width="14" height="2.5" rx="1.25" fill="rgba(255,255,255,0.8)"/>
+  <rect x="46" y="57" width="10" height="2" rx="1" fill="rgba(255,255,255,0.5)"/>
+
+  <!-- Pixel dot grid (bottom-left corner, mirrors logo pixel detail) -->
+  <rect x="8"  y="52" width="3.5" height="3.5" rx="0.8" fill="rgba(255,255,255,0.6)"/>
+  <rect x="14" y="52" width="3.5" height="3.5" rx="0.8" fill="rgba(255,255,255,0.35)"/>
+  <rect x="8"  y="58" width="3.5" height="3.5" rx="0.8" fill="rgba(255,255,255,0.35)"/>
+  <rect x="14" y="58" width="3.5" height="3.5" rx="0.8" fill="rgba(255,255,255,0.15)"/>
+
+  <defs>
+    <radialGradient id="glow" cx="30%" cy="25%" r="60%">
+      <stop offset="0%" stop-color="#60BFFF"/>
+      <stop offset="100%" stop-color="#0060CC"/>
+    </radialGradient>
+  </defs>
+</svg>

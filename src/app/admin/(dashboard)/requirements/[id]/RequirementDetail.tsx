@@ -240,6 +240,7 @@ export default function RequirementDetail({
   }, [requirement.id]);
 
   return (
+    <>
     <div className="space-y-4 animate-fade-in">
       {/* ── Header card ─────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-bg-secondary p-5">
@@ -765,5 +766,6 @@ export default function RequirementDetail({
           onClose={() => setEmailTarget(null)}
         />
       )}
+    </>
   );
 }

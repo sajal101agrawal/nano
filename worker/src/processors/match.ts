@@ -91,7 +91,7 @@ export async function matchProcessor(job: Job): Promise<void> {
     whereClause += ` AND COALESCE(cp.total_experience_years, 0) >= $${params.length}`;
   }
 
-  const candidates = await dbQuery<{
+  type CandidateRow = {
     candidate_id: string;
     profile_id: string;
     vector_score: number;
@@ -103,26 +103,57 @@ export async function matchProcessor(job: Job): Promise<void> {
     location: string;
     parsed_json: string;
     summary: string;
-  }>(
-    `SELECT
-      c.id AS candidate_id,
-      cp.id AS profile_id,
-      1 - (cp.embedding <=> $1::vector) AS vector_score,
-      c.full_name,
-      c.availability_status,
-      c.open_to_contract,
-      c.notice_period_days,
-      c.expected_rate,
-      c.location,
-      cp.parsed_json,
-      cp.summary
-    FROM candidate_profiles cp
-    JOIN candidates c ON c.id = cp.candidate_id
-    ${whereClause}
-    ORDER BY cp.embedding <=> $1::vector
-    LIMIT $2`,
-    params
-  );
+  };
+
+  const [poolCandidates, applicantCandidates] = await Promise.all([
+    dbQuery<CandidateRow>(
+      `SELECT
+        c.id AS candidate_id,
+        cp.id AS profile_id,
+        1 - (cp.embedding <=> $1::vector) AS vector_score,
+        c.full_name,
+        c.availability_status,
+        c.open_to_contract,
+        c.notice_period_days,
+        c.expected_rate,
+        c.location,
+        cp.parsed_json,
+        cp.summary
+      FROM candidate_profiles cp
+      JOIN candidates c ON c.id = cp.candidate_id
+      ${whereClause}
+      ORDER BY cp.embedding <=> $1::vector
+      LIMIT $2`,
+      params
+    ),
+    // Always include candidates who explicitly applied, even if outside top-N pool
+    dbQuery<CandidateRow>(
+      `SELECT
+        c.id AS candidate_id,
+        cp.id AS profile_id,
+        COALESCE(1 - (cp.embedding <=> $1::vector), 0) AS vector_score,
+        c.full_name,
+        c.availability_status,
+        c.open_to_contract,
+        c.notice_period_days,
+        c.expected_rate,
+        c.location,
+        cp.parsed_json,
+        cp.summary
+      FROM applications a
+      JOIN candidates c ON c.id = a.candidate_id
+      LEFT JOIN candidate_profiles cp ON cp.candidate_id = c.id AND cp.is_current = TRUE
+      WHERE a.requirement_id = $2`,
+      [vectorStr, requirementId]
+    ),
+  ]);
+
+  // Merge: pool first, then applicants not already included
+  const seenIds = new Set(poolCandidates.map((c) => c.candidate_id));
+  const candidates: CandidateRow[] = [
+    ...poolCandidates,
+    ...applicantCandidates.filter((c) => !seenIds.has(c.candidate_id)),
+  ];
 
   if (!candidates.length) {
     console.log(`[match] No candidates found for requirement ${requirementId}`);

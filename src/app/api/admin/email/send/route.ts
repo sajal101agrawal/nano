@@ -83,7 +83,44 @@ export async function POST(req: NextRequest) {
     if (!variables.from_name) variables.from_name = session.name;
 
     const subject = renderTemplate(rawSubject, variables);
-    const html = renderTemplate(rawBody, variables);
+    const renderedBody = renderTemplate(rawBody, variables);
+
+    // Convert plain-text body to HTML so line breaks and spacing are preserved.
+    // Escape HTML entities first, then convert \n to <br>.
+    const escapeHtml = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    const fromName = process.env.EMAIL_FROM_NAME || "Sajal Tech Talent";
+    const replyTo  = process.env.EMAIL_REPLY_TO  || "contact@sajaltech.com";
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);">
+        <!-- Header -->
+        <tr><td style="background:#1e3a5f;padding:20px 32px;">
+          <span style="font-size:16px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">${escapeHtml(fromName)}</span>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="padding:32px;color:#374151;font-size:15px;line-height:1.7;">
+          ${escapeHtml(renderedBody).replace(/\n\n+/g, "</p><p style='margin:0 0 16px;'>").replace(/\n/g, "<br>")}
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;">
+          <p style="margin:0;font-size:12px;color:#9ca3af;">
+            ${escapeHtml(fromName)} &middot;
+            <a href="mailto:${escapeHtml(replyTo)}" style="color:#9ca3af;">${escapeHtml(replyTo)}</a>
+            &middot; <a href="${escapeHtml(variables.unsubscribe_url || "")}" style="color:#9ca3af;">Unsubscribe</a>
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 
     // Determine stream
     const stream: "outreach" | "transactional" = "outreach";
@@ -93,7 +130,7 @@ export async function POST(req: NextRequest) {
     await query(
       `INSERT INTO outreach_messages (id, target_type, target_id, requirement_id, template_id, sent_by, subject, body, email_to, stream, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'queued')`,
-      [messageId, targetType, targetId, requirementId || null, templateId || null, session.userId, subject, html, emailTo, stream]
+      [messageId, targetType, targetId, requirementId || null, templateId || null, session.userId, subject, renderedBody, emailTo, stream]
     );
 
     // Enqueue
