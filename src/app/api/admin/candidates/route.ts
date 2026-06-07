@@ -39,6 +39,17 @@ const CANDIDATE_COLS = `
 // OpenAI embeddings typically produce lower scores (10-30%) for query-to-document matching
 const MIN_VECTOR_SCORE = 0.05;
 
+// Convert search query to PostgreSQL tsquery format (word1 & word2 & ...)
+function toTsQuery(q: string): string {
+  return q
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(w => w.length > 1)
+    .map(w => w.replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean)
+    .join(' & ');
+}
+
 export async function GET(req: NextRequest) {
   try {
     await requireAdminSession();
@@ -74,8 +85,10 @@ export async function GET(req: NextRequest) {
       try {
         const embedding = await generateEmbedding(q);
         const vectorStr = `[${embedding.join(",")}]`;
+        const tsQuery = toTsQuery(q);
+        const searchWords = q.toLowerCase().split(/\s+/).filter(w => w.length > 1);
 
-        const vecParams: unknown[] = [vectorStr, q]; // $1 = vector, $2 = search query
+        const vecParams: unknown[] = [vectorStr, tsQuery]; // $1 = vector, $2 = tsquery string
         const vecConditions: string[] = ["c.status != 'deleted'", "cp.is_current = TRUE"];
         
         // Build additional filter conditions starting at $3
@@ -95,7 +108,18 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        const allParams = [...vecParams, ...additionalParams];
+        const baseParamCount = 2 + additionalParams.length;
+        
+        // Build word-based ILIKE conditions for each search word
+        const wordMatchConditions = searchWords.map((_, i) => 
+          `cp.summary ILIKE '%' || $${baseParamCount + 1 + i} || '%' OR cp.parsed_json::text ILIKE '%' || $${baseParamCount + 1 + i} || '%'`
+        ).join(' OR ');
+        
+        const skillMatchConditions = searchWords.map((_, i) =>
+          `cs.skill ILIKE '%' || $${baseParamCount + 1 + i} || '%'`
+        ).join(' OR ');
+
+        const allParams = [...vecParams, ...additionalParams, ...searchWords];
         const vecWhere = vecConditions.join(" AND ");
 
         // Hybrid search: combines vector similarity with text matching
@@ -105,16 +129,16 @@ export async function GET(req: NextRequest) {
               c.id AS candidate_id,
               1 - (cp.embedding <=> $1::vector) AS vector_score,
               CASE 
-                WHEN cp.summary ILIKE '%' || $2 || '%' THEN 0.3
-                WHEN cp.parsed_json::text ILIKE '%' || $2 || '%' THEN 0.2
+                WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.4
+                WHEN ${wordMatchConditions ? `(${wordMatchConditions})` : 'FALSE'} THEN 0.25
                 ELSE 0
               END AS text_bonus,
               CASE
                 WHEN EXISTS (
                   SELECT 1 FROM candidate_skills cs 
                   WHERE cs.candidate_id = c.id 
-                  AND (cs.skill ILIKE '%' || $2 || '%' OR cs.skill_normalized % lower($2))
-                ) THEN 0.2
+                  AND (${skillMatchConditions ? `(${skillMatchConditions})` : 'FALSE'})
+                ) THEN 0.25
                 ELSE 0
               END AS skill_bonus
             FROM candidate_profiles cp
@@ -147,16 +171,16 @@ export async function GET(req: NextRequest) {
               c.id AS candidate_id,
               1 - (cp.embedding <=> $1::vector) AS vector_score,
               CASE 
-                WHEN cp.summary ILIKE '%' || $2 || '%' THEN 0.3
-                WHEN cp.parsed_json::text ILIKE '%' || $2 || '%' THEN 0.2
+                WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.4
+                WHEN ${wordMatchConditions ? `(${wordMatchConditions})` : 'FALSE'} THEN 0.25
                 ELSE 0
               END AS text_bonus,
               CASE
                 WHEN EXISTS (
                   SELECT 1 FROM candidate_skills cs 
                   WHERE cs.candidate_id = c.id 
-                  AND (cs.skill ILIKE '%' || $2 || '%' OR cs.skill_normalized % lower($2))
-                ) THEN 0.2
+                  AND (${skillMatchConditions ? `(${skillMatchConditions})` : 'FALSE'})
+                ) THEN 0.25
                 ELSE 0
               END AS skill_bonus
             FROM candidate_profiles cp

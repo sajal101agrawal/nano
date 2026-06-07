@@ -26,17 +26,35 @@ export function getRedisConnection(): ConnectionOptions {
 
   // Fall back to REDIS_URL
   const raw = process.env.REDIS_URL || "redis://localhost:6379";
+  
+  // Parse URL carefully - Railway URLs can have special characters in passwords
   const url = new URL(raw);
   const hasPassword = !!url.password;
   const hasUsername = !!url.username;
-  console.log(`[redis] Using REDIS_URL host=${url.hostname} hasPassword=${hasPassword} hasUsername=${hasUsername}`);
+  
+  // Debug: log what we're parsing (without exposing full password)
+  const passwordPreview = url.password ? `${url.password.substring(0, 3)}...` : "none";
+  console.log(`[redis] Using REDIS_URL host=${url.hostname}:${url.port || "6379"} hasPassword=${hasPassword} hasUsername=${hasUsername} passwordPreview=${passwordPreview}`);
+  
   const opts: Record<string, unknown> = {
     host: url.hostname,
     port: parseInt(url.port || "6379"),
   };
-  if (url.username) opts.username = decodeURIComponent(url.username);
-  if (url.password) opts.password = decodeURIComponent(url.password);
-  if (url.protocol === "rediss:") opts.tls = {};
+  
+  // Decode URI components - passwords may contain special characters
+  // Railway uses 'default' as the username for Redis
+  if (url.username) {
+    opts.username = decodeURIComponent(url.username);
+  }
+  if (url.password) {
+    opts.password = decodeURIComponent(url.password);
+    console.log(`[redis] Password length after decode: ${(opts.password as string).length}`);
+  }
+  
+  // Handle TLS for rediss:// protocol
+  if (url.protocol === "rediss:") {
+    opts.tls = {};
+  }
+  
   return opts as ConnectionOptions;
 }
-
