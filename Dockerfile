@@ -24,6 +24,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/src/worker/dist ./src/worker/dist
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 COPY --from=builder --chown=nextjs:nodejs /app/migrations ./migrations
+COPY --from=deps /app/node_modules ./node_modules
 RUN chmod +x /app/scripts/start.sh
 USER nextjs
 EXPOSE 3000
