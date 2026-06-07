@@ -50,10 +50,6 @@ const SELECT_COLS = `
   ) AS raw_skills
 `;
 
-// Minimum cosine similarity threshold for vector search results (0-1 scale)
-// OpenAI embeddings typically produce lower scores (10-30%) for query-to-document matching
-const MIN_VECTOR_SCORE = 0.05;
-
 // Convert search query to PostgreSQL tsquery format (word1 & word2 & ...)
 function toTsQuery(q: string): string {
   return q
@@ -113,20 +109,24 @@ async function getCandidatesHybridSearch(
   const skillMatchConditions = searchWords.map((_, i) =>
     `cs.skill ILIKE '%' || $${filterParams.length + 1 + i} || '%'`
   ).join(' OR ');
+  
+  // Also check candidate name
+  const nameMatchConditions = searchWords.map((_, i) =>
+    `c.full_name ILIKE '%' || $${filterParams.length + 1 + i} || '%'`
+  ).join(' OR ');
 
   // Add search words as parameters
   filterParams.push(...searchWords);
 
-  // Hybrid search: combines vector similarity with text matching
-  // - vector_score: semantic similarity (0-1)
-  // - text_match: bonus for word matches in summary/parsed content (using full-text search OR individual word ILIKE)
-  // - skill_match: bonus for matching skills
+  // Hybrid search: ONLY include candidates that have a text/skill/name match
+  // Vector score is used for ranking, not filtering
   const hybridSql = `
     WITH scored AS (
       SELECT
         c.id AS candidate_id,
         1 - (cp.embedding <=> $1::vector) AS vector_score,
         CASE 
+          WHEN ${nameMatchConditions ? `(${nameMatchConditions})` : 'FALSE'} THEN 0.5
           WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.4
           WHEN ${wordMatchConditions ? `(${wordMatchConditions})` : 'FALSE'} THEN 0.25
           ELSE 0
@@ -151,7 +151,7 @@ async function getCandidatesHybridSearch(
         skill_bonus,
         (vector_score + text_bonus + skill_bonus) AS combined_score
       FROM scored
-      WHERE vector_score >= ${MIN_VECTOR_SCORE} OR text_bonus > 0 OR skill_bonus > 0
+      WHERE text_bonus > 0 OR skill_bonus > 0
       ORDER BY combined_score DESC
       LIMIT 200
     )
@@ -171,6 +171,7 @@ async function getCandidatesHybridSearch(
         c.id AS candidate_id,
         1 - (cp.embedding <=> $1::vector) AS vector_score,
         CASE 
+          WHEN ${nameMatchConditions ? `(${nameMatchConditions})` : 'FALSE'} THEN 0.5
           WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.4
           WHEN ${wordMatchConditions ? `(${wordMatchConditions})` : 'FALSE'} THEN 0.25
           ELSE 0
@@ -189,7 +190,7 @@ async function getCandidatesHybridSearch(
     )
     SELECT COUNT(*) AS count
     FROM scored
-    WHERE vector_score >= ${MIN_VECTOR_SCORE} OR text_bonus > 0 OR skill_bonus > 0
+    WHERE text_bonus > 0 OR skill_bonus > 0
   `;
 
   const [rows, countRows] = await Promise.all([

@@ -10,18 +10,22 @@ import type { ConnectionOptions } from "bullmq";
  * Railway's individual vars are always up to date.
  */
 export function getRedisConnection(): ConnectionOptions {
+  // Debug: check which env vars are available
+  console.log(`[redis] ENV check: REDISHOST=${process.env.REDISHOST ? "set" : "unset"}, REDIS_URL=${process.env.REDIS_URL ? "set" : "unset"}`);
+  
   // Railway injects these individual vars from the Redis plugin
   if (process.env.REDISHOST) {
     const hasPassword = !!process.env.REDISPASSWORD;
     const hasUsername = !!process.env.REDISUSER;
     console.log(`[redis] Using REDISHOST host=${process.env.REDISHOST}:${process.env.REDISPORT || "6379"} hasPassword=${hasPassword} hasUsername=${hasUsername}`);
-    const opts: Record<string, unknown> = {
+    const opts: ConnectionOptions = {
       host: process.env.REDISHOST,
       port: parseInt(process.env.REDISPORT || "6379"),
+      username: process.env.REDISUSER || undefined,
+      password: process.env.REDISPASSWORD || undefined,
+      maxRetriesPerRequest: null, // Required for BullMQ
     };
-    if (process.env.REDISUSER) opts.username = process.env.REDISUSER;
-    if (process.env.REDISPASSWORD) opts.password = process.env.REDISPASSWORD;
-    return opts as ConnectionOptions;
+    return opts;
   }
 
   // Fall back to REDIS_URL
@@ -29,32 +33,22 @@ export function getRedisConnection(): ConnectionOptions {
   
   // Parse URL carefully - Railway URLs can have special characters in passwords
   const url = new URL(raw);
-  const hasPassword = !!url.password;
-  const hasUsername = !!url.username;
   
-  // Debug: log what we're parsing (without exposing full password)
-  const passwordPreview = url.password ? `${url.password.substring(0, 3)}...` : "none";
-  console.log(`[redis] Using REDIS_URL host=${url.hostname}:${url.port || "6379"} hasPassword=${hasPassword} hasUsername=${hasUsername} passwordPreview=${passwordPreview}`);
+  // Debug: log what we're parsing
+  console.log(`[redis] Using REDIS_URL host=${url.hostname}:${url.port || "6379"} user=${url.username || "none"} passLen=${url.password?.length || 0}`);
   
-  const opts: Record<string, unknown> = {
+  const opts: ConnectionOptions = {
     host: url.hostname,
     port: parseInt(url.port || "6379"),
+    username: url.username ? decodeURIComponent(url.username) : undefined,
+    password: url.password ? decodeURIComponent(url.password) : undefined,
+    maxRetriesPerRequest: null, // Required for BullMQ
   };
-  
-  // Decode URI components - passwords may contain special characters
-  // Railway uses 'default' as the username for Redis
-  if (url.username) {
-    opts.username = decodeURIComponent(url.username);
-  }
-  if (url.password) {
-    opts.password = decodeURIComponent(url.password);
-    console.log(`[redis] Password length after decode: ${(opts.password as string).length}`);
-  }
   
   // Handle TLS for rediss:// protocol
   if (url.protocol === "rediss:") {
     opts.tls = {};
   }
   
-  return opts as ConnectionOptions;
+  return opts;
 }

@@ -35,10 +35,6 @@ const CANDIDATE_COLS = `
   )::text AS raw_skills
 `;
 
-// Minimum cosine similarity threshold for vector search results (0-1 scale)
-// OpenAI embeddings typically produce lower scores (10-30%) for query-to-document matching
-const MIN_VECTOR_SCORE = 0.05;
-
 // Convert search query to PostgreSQL tsquery format (word1 & word2 & ...)
 function toTsQuery(q: string): string {
   return q
@@ -118,17 +114,23 @@ export async function GET(req: NextRequest) {
         const skillMatchConditions = searchWords.map((_, i) =>
           `cs.skill ILIKE '%' || $${baseParamCount + 1 + i} || '%'`
         ).join(' OR ');
+        
+        // Also check candidate name
+        const nameMatchConditions = searchWords.map((_, i) =>
+          `c.full_name ILIKE '%' || $${baseParamCount + 1 + i} || '%'`
+        ).join(' OR ');
 
         const allParams = [...vecParams, ...additionalParams, ...searchWords];
         const vecWhere = vecConditions.join(" AND ");
 
-        // Hybrid search: combines vector similarity with text matching
+        // Hybrid search: ONLY include candidates that have a text/skill/name match
         const hybridSql = `
           WITH scored AS (
             SELECT
               c.id AS candidate_id,
               1 - (cp.embedding <=> $1::vector) AS vector_score,
               CASE 
+                WHEN ${nameMatchConditions ? `(${nameMatchConditions})` : 'FALSE'} THEN 0.5
                 WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.4
                 WHEN ${wordMatchConditions ? `(${wordMatchConditions})` : 'FALSE'} THEN 0.25
                 ELSE 0
@@ -153,7 +155,7 @@ export async function GET(req: NextRequest) {
               skill_bonus,
               (vector_score + text_bonus + skill_bonus) AS combined_score
             FROM scored
-            WHERE vector_score >= ${MIN_VECTOR_SCORE} OR text_bonus > 0 OR skill_bonus > 0
+            WHERE text_bonus > 0 OR skill_bonus > 0
             ORDER BY combined_score DESC
             LIMIT 200
           )
@@ -171,6 +173,7 @@ export async function GET(req: NextRequest) {
               c.id AS candidate_id,
               1 - (cp.embedding <=> $1::vector) AS vector_score,
               CASE 
+                WHEN ${nameMatchConditions ? `(${nameMatchConditions})` : 'FALSE'} THEN 0.5
                 WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.4
                 WHEN ${wordMatchConditions ? `(${wordMatchConditions})` : 'FALSE'} THEN 0.25
                 ELSE 0
@@ -189,7 +192,7 @@ export async function GET(req: NextRequest) {
           )
           SELECT COUNT(*) AS count
           FROM scored
-          WHERE vector_score >= ${MIN_VECTOR_SCORE} OR text_bonus > 0 OR skill_bonus > 0
+          WHERE text_bonus > 0 OR skill_bonus > 0
         `;
 
         const [rows, countRows] = await Promise.all([
