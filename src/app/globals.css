@@ -461,8 +461,8 @@ h1, h2, h3, h4, h5, h6, .font-display {
   margin-top: 18px;
   margin-bottom: 8px;
 }
-.prose-jd h1 { font-size: 18px; font-weight: 700; }
-.prose-jd h2 { font-size: 16px; font-weight: 600; }
+.prose-jd h1 { font-size: 17px; font-weight: 700; }
+.prose-jd h2 { font-size: 15px; font-weight: 600; }
 .prose-jd h3 { font-size: 14px; font-weight: 600; }
 .prose-jd p  { font-size: 14px; color: var(--color-text-dim); line-height: 1.7; margin-bottom: 8px; }
 .prose-jd ul { padding-left: 0; }
@@ -534,7 +534,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
   transition: width 600ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ─── OTP digit inputs ───────────────────────────────────────────────────── */
+/* ─── OTP digit inputs (kept for admin) ─── */
 .otp-digit {
   width: 48px;
   height: 54px;

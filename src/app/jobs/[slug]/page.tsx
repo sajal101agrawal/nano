@@ -1,9 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { query, queryOne } from "@/lib/db";
-import { getCandidateSession } from "@/lib/auth";
 import type { Requirement, RequirementQuestion } from "@/types";
-import OTPAuthCard from "./OTPAuthCard";
 import ApplicationFlow from "./ApplicationFlow";
 
 export const dynamic = "force-dynamic";
@@ -18,10 +16,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     "SELECT title FROM requirements WHERE public_slug = $1 AND status = 'open'",
     [slug]
   );
-  if (!req) return { title: "Position Not Available — Nano" };
+  if (!req) return { title: "Position Not Available — Sajal Tech Careers" };
   return {
-    title: `${req.title} — Nano`,
-    description: `Apply for ${req.title} at Sajal Tech`,
+    title: `${req.title} — Sajal Tech Careers`,
+    description: `Apply for ${req.title} at Sajal Tech. Quick application, no login required.`,
   };
 }
 
@@ -45,144 +43,48 @@ function workModeLabel(mode?: string): string {
   return map[mode] ?? mode;
 }
 
-function NanoHeader({ showBack = false }: { showBack?: boolean }) {
-  return (
-    <header
-      className="sticky top-0 z-20 border-b"
-      style={{
-        background: "color-mix(in srgb, var(--color-bg) 85%, transparent)",
-        borderColor: "var(--color-border)",
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-      }}
-    >
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: "var(--color-primary)" }}
-          >
-            <span
-              className="font-display font-bold text-white"
-              style={{ fontSize: "13px", letterSpacing: "-0.02em" }}
-            >
-              N
-            </span>
-          </div>
-          <span
-            className="font-display font-semibold"
-            style={{
-              fontSize: "14px",
-              color: "var(--color-text-light)",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            Nano
-          </span>
-          <span
-            style={{ fontSize: "12px", color: "var(--color-text-muted)" }}
-            className="hidden sm:inline"
-          >
-            by Sajal Tech
-          </span>
-        </div>
-
-        {showBack && (
-          <Link
-            href="/jobs"
-            className="flex items-center gap-1 transition-colors"
-            style={{ fontSize: "13px", color: "var(--color-text-dim)" }}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="m15 18-6-6 6-6" />
-            </svg>
-            All positions
-          </Link>
-        )}
-      </div>
-    </header>
-  );
-}
-
 export default async function JobDetailPage({ params }: PageProps) {
   const { slug } = await params;
 
-  const [req, session] = await Promise.all([
-    queryOne<Requirement>(
-      "SELECT * FROM requirements WHERE public_slug = $1 AND status = 'open'",
-      [slug]
-    ),
-    getCandidateSession(),
-  ]);
+  const req = await queryOne<Requirement>(
+    "SELECT * FROM requirements WHERE public_slug = $1 AND status = 'open'",
+    [slug]
+  );
 
   if (!req) {
     return (
-      <div
-        className="min-h-screen flex flex-col"
-        style={{ background: "var(--color-bg)" }}
-      >
-        <NanoHeader />
+      <div className="min-h-screen flex flex-col bg-bg">
+        <header className="sticky top-0 z-20 border-b border-border bg-bg/80 backdrop-blur-xl">
+          <div className="max-w-2xl mx-auto px-5 sm:px-6 h-16 flex items-center">
+            <Link href="/jobs" className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+                <span className="font-display font-black text-sm text-white leading-none">S</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="font-display font-bold text-text-light text-[15px] leading-tight tracking-tight">Sajal Tech</span>
+                <span className="text-text-muted text-[11px] leading-tight">Careers</span>
+              </div>
+            </Link>
+          </div>
+        </header>
 
-        <div className="flex-1 flex items-center justify-center px-4 py-16">
-          <div className="text-center max-w-xs animate-fade-up">
-            <div
-              className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5"
-              style={{
-                background: "var(--color-bg-secondary)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              <svg
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                style={{ color: "var(--color-text-dim)" }}
-              >
+        <div className="flex-1 flex items-center justify-center px-5 py-16">
+          <div className="text-center max-w-sm animate-fade-up">
+            <div className="w-14 h-14 rounded-2xl bg-bg-secondary border border-border flex items-center justify-center mx-auto mb-5">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-muted">
                 <circle cx="12" cy="12" r="10" />
                 <line x1="12" y1="8" x2="12" y2="12" />
                 <line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
             </div>
-
-            <h1
-              className="font-display font-bold mb-2"
-              style={{
-                fontSize: "20px",
-                color: "var(--color-text-light)",
-                letterSpacing: "-0.02em",
-              }}
-            >
+            <h1 className="font-display text-xl font-bold text-text-light tracking-tight mb-2">
               Position Closed
             </h1>
-            <p
-              className="mb-6"
-              style={{ fontSize: "14px", color: "var(--color-text-dim)", lineHeight: 1.6 }}
-            >
+            <p className="text-text-dim text-sm mb-6 leading-relaxed">
               This role has been filled or is no longer accepting applications.
             </p>
-
-            <Link
-              href="/jobs"
-              className="inline-flex items-center gap-2 btn btn-secondary"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
+            <Link href="/jobs" className="btn btn-secondary inline-flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="m15 18-6-6 6-6" />
               </svg>
               Browse open positions
@@ -199,46 +101,46 @@ export default async function JobDetailPage({ params }: PageProps) {
   );
 
   return (
-    <div
-      className="min-h-screen"
-      style={{ background: "var(--color-bg)" }}
-    >
-      <NanoHeader showBack />
+    <div className="min-h-screen bg-bg">
+      {/* Header */}
+      <header className="sticky top-0 z-20 border-b border-border bg-bg/80 backdrop-blur-xl">
+        <div className="max-w-2xl mx-auto px-5 sm:px-6 h-16 flex items-center justify-between">
+          <Link href="/jobs" className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+              <span className="font-display font-black text-sm text-white leading-none">S</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="font-display font-bold text-text-light text-[15px] leading-tight tracking-tight">Sajal Tech</span>
+              <span className="text-text-muted text-[11px] leading-tight">Careers</span>
+            </div>
+          </Link>
+          <Link
+            href="/jobs"
+            className="flex items-center gap-1.5 text-[13px] text-text-dim hover:text-primary transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            All positions
+          </Link>
+        </div>
+      </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        {/* Job header */}
-        <div className="mb-8 stagger">
-          <div className="flex flex-wrap items-center gap-1.5 mb-3">
-            <span
-              className="badge"
-              style={{
-                background: "var(--primary-subtle)",
-                color: "var(--color-primary)",
-                border: "1px solid rgba(var(--color-primary-rgb), 0.2)",
-              }}
-            >
+      <main className="max-w-2xl mx-auto px-5 sm:px-6 py-8 sm:py-12">
+        {/* Job info */}
+        <div className="mb-8 animate-fade-up">
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <span className="inline-flex items-center rounded-full bg-primary/[0.08] text-primary text-[11px] font-medium px-2.5 py-0.5">
               {engagementLabel(req.engagement_type)}
             </span>
-
             {req.work_mode && (
-              <span className="badge badge-gray">
+              <span className="inline-flex items-center rounded-full bg-bg-tertiary text-text-dim text-[11px] font-medium px-2.5 py-0.5">
                 {workModeLabel(req.work_mode)}
               </span>
             )}
-
             {req.location && (
-              <span
-                className="inline-flex items-center gap-1"
-                style={{ fontSize: "12px", color: "var(--color-text-muted)" }}
-              >
-                <svg
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
+              <span className="flex items-center gap-1 text-[11px] text-text-muted">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z" />
                   <circle cx="12" cy="10" r="3" />
                 </svg>
@@ -246,54 +148,66 @@ export default async function JobDetailPage({ params }: PageProps) {
               </span>
             )}
           </div>
-
-          <h1
-            className="font-display font-bold"
-            style={{
-              fontSize: "clamp(22px, 4vw, 30px)",
-              color: "var(--color-text-light)",
-              letterSpacing: "-0.025em",
-              lineHeight: 1.2,
-            }}
-          >
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-text-light tracking-tight">
             {req.title}
           </h1>
         </div>
 
-        {/* Auth gate or flow */}
-        <div className="flex flex-col items-center sm:items-start">
-          {!session ? (
-            <div className="w-full max-w-[540px] space-y-4 animate-fade-up">
-              <div>
-                <p
-                  className="font-display font-semibold mb-0.5"
-                  style={{ fontSize: "14px", color: "var(--color-text-dim)" }}
-                >
-                  Applying for
-                </p>
-                <p
-                  className="font-display font-bold"
-                  style={{
-                    fontSize: "18px",
-                    color: "var(--color-text-light)",
-                    letterSpacing: "-0.02em",
-                  }}
-                >
-                  {req.title}
-                </p>
+        {/* Job description */}
+        {req.jd_raw && (
+          <div className="mb-10 animate-fade-up" style={{ animationDelay: "50ms" }}>
+            <div className="bg-bg-secondary border border-border rounded-xl p-5 sm:p-6 max-h-[50vh] overflow-y-auto">
+              <div className="prose-jd">
+                {req.jd_raw.split("\n").map((line, i) => {
+                  const trimmed = line.trim();
+                  if (!trimmed) return <div key={i} className="h-2.5" />;
+                  if (trimmed.startsWith("##")) {
+                    return <h2 key={i}>{trimmed.replace(/^##\s*/, "")}</h2>;
+                  }
+                  if (trimmed.startsWith("#")) {
+                    return <h1 key={i}>{trimmed.replace(/^#\s*/, "")}</h1>;
+                  }
+                  if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+                    return (
+                      <li key={i}><span>{trimmed.slice(2)}</span></li>
+                    );
+                  }
+                  return <p key={i}>{line}</p>;
+                })}
               </div>
+            </div>
 
-              <OTPAuthCard />
+            {(req.required_skills?.length ?? 0) > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-4">
+                {req.required_skills!.map((s) => (
+                  <span
+                    key={s}
+                    className="text-[11px] text-primary/80 bg-primary/[0.06] border border-primary/[0.12] rounded-full px-2.5 py-0.5 font-medium"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Application section */}
+        <div className="animate-fade-up" style={{ animationDelay: "100ms" }}>
+          <div className="border-t border-border pt-8">
+            <div className="flex items-center gap-2 mb-6">
+              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-primary">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+              </div>
+              <h2 className="font-display text-lg font-semibold text-text-light tracking-tight">
+                Apply now
+              </h2>
             </div>
-          ) : (
-            <div className="w-full animate-fade-up">
-              <ApplicationFlow
-                requirement={req}
-                questions={questions}
-                session={session}
-              />
-            </div>
-          )}
+            <ApplicationFlow requirement={req} questions={questions} />
+          </div>
         </div>
       </main>
     </div>

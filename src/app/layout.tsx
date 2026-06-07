@@ -3,11 +3,11 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Nano — Talent Platform by Sajal Tech",
-    template: "%s | Nano",
+    default: "Careers — Sajal Tech",
+    template: "%s | Sajal Tech",
   },
   description:
-    "Staff augmentation talent platform — find, match, and place top engineering talent for your live requirements.",
+    "Join Sajal Tech. Browse open positions and apply directly — no account needed.",
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
   ),

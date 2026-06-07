@@ -1,20 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { getCandidateSession } from "@/lib/auth";
 import { query, queryOne, transaction } from "@/lib/db";
 import { uploadCV, ALLOWED_MIME_TYPES } from "@/lib/storage";
 import { enqueueCVParse } from "@/lib/queue";
 import { isEmailSuppressed, sendConfirmationEmail } from "@/lib/email";
 import { normalizeEmail, normalizePhone, buildUnsubscribeUrl, createNotification } from "@/lib/utils";
+import { rateLimit } from "@/lib/redis";
 
 const MAX_SIZE = 10 * 1024 * 1024;
 
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown"
+  );
+}
+
 export async function POST(req: NextRequest) {
-  const session = await getCandidateSession();
-  if (!session?.verified) {
+  const ip = getClientIp(req);
+
+  const rateLimitResult = await rateLimit(`apply:ip:${ip}`, 10, 3600);
+  if (!rateLimitResult.allowed) {
     return NextResponse.json(
-      { success: false, error: "Authentication required" },
-      { status: 401 }
+      { success: false, error: "Too many submissions. Please try again later." },
+      { status: 429 }
     );
   }
 
@@ -32,6 +42,7 @@ export async function POST(req: NextRequest) {
   const requirementId = (formData.get("requirementId") as string | null)?.trim();
   const answersRaw = (formData.get("answers") as string | null) ?? "{}";
   const candidateName = (formData.get("candidateName") as string | null)?.trim() ?? "";
+  const candidateEmailRaw = (formData.get("candidateEmail") as string | null)?.trim() ?? "";
   const candidatePhoneRaw = (formData.get("candidatePhone") as string | null)?.trim() ?? "";
 
   if (!cvFile || cvFile.size === 0) {
@@ -44,6 +55,13 @@ export async function POST(req: NextRequest) {
   if (!requirementId) {
     return NextResponse.json(
       { success: false, error: "requirementId is required" },
+      { status: 400 }
+    );
+  }
+
+  if (!candidateEmailRaw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidateEmailRaw)) {
+    return NextResponse.json(
+      { success: false, error: "A valid email address is required" },
       { status: 400 }
     );
   }
@@ -72,7 +90,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ---- Validate requirement is open ----
   const requirement = await queryOne<{ id: string; title: string; status: string }>(
     "SELECT id, title, status FROM requirements WHERE id = $1",
     [requirementId]
@@ -85,18 +102,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ---- Normalize session identifier ----
-  const { identifier, identifierType } = session;
-  const normalizedEmail =
-    identifierType === "email" ? normalizeEmail(identifier) : null;
-  const normalizedPhone =
-    identifierType === "phone"
-      ? normalizePhone(identifier)
-      : candidatePhoneRaw
-      ? normalizePhone(candidatePhoneRaw)
-      : null;
+  const normalizedEmail = normalizeEmail(candidateEmailRaw);
+  const normalizedPhone = candidatePhoneRaw ? normalizePhone(candidatePhoneRaw) : null;
 
-  // ---- Suppression check ----
   if (normalizedEmail) {
     const suppressed = await isEmailSuppressed(normalizedEmail);
     if (suppressed) {
@@ -107,11 +115,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ---- Check for existing duplicate application (before any writes) ----
-  // We do this after resolving the candidate inside the transaction.
-
   try {
-    // ---- Upload CV (outside transaction — S3 is not transactional) ----
     const cvBuffer = Buffer.from(await cvFile.arrayBuffer());
     const { url: cvUrl, key: cvKey } = await uploadCV(
       cvBuffer,
@@ -125,7 +129,6 @@ export async function POST(req: NextRequest) {
     let isDuplicate = false;
 
     await transaction(async (client) => {
-      // ---- Deduplication ----
       let existingId: string | null = null;
 
       if (normalizedEmail) {
@@ -146,7 +149,6 @@ export async function POST(req: NextRequest) {
 
       if (existingId) {
         candidateId = existingId;
-        // Refresh volatile fields
         await client.query(
           `UPDATE candidates
            SET last_active_at = NOW(),
@@ -158,13 +160,11 @@ export async function POST(req: NextRequest) {
            WHERE id = $1`,
           [candidateId, candidateName, normalizedEmail, normalizedPhone]
         );
-        // Mark old profiles non-current
         await client.query(
           "UPDATE candidate_profiles SET is_current = FALSE WHERE candidate_id = $1",
           [candidateId]
         );
       } else {
-        // New candidate
         candidateId = uuidv4();
         await client.query(
           `INSERT INTO candidates
@@ -175,7 +175,6 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // ---- Duplicate application check ----
       const dupRow = await client.query<{ id: string }>(
         "SELECT id FROM applications WHERE requirement_id = $1 AND candidate_id = $2 LIMIT 1",
         [requirementId, candidateId]
@@ -187,7 +186,6 @@ export async function POST(req: NextRequest) {
         return;
       }
 
-      // ---- Create candidate profile ----
       profileId = uuidv4();
       const verRow = await client.query<{ max: number }>(
         "SELECT COALESCE(MAX(version), 0) AS max FROM candidate_profiles WHERE candidate_id = $1",
@@ -203,7 +201,6 @@ export async function POST(req: NextRequest) {
         [profileId, candidateId, cvUrl, cvFile.name, cvFile.size, nextVersion]
       );
 
-      // ---- Create application ----
       applicationId = uuidv4();
       await client.query(
         `INSERT INTO applications
@@ -212,7 +209,6 @@ export async function POST(req: NextRequest) {
         [applicationId, requirementId, candidateId, profileId]
       );
 
-      // ---- Insert application answers ----
       for (const [questionId, answerValue] of Object.entries(answers)) {
         await client.query(
           `INSERT INTO application_answers
@@ -223,7 +219,6 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // ---- Record availability event ----
       await client.query(
         `INSERT INTO availability_events
            (id, candidate_id, status, source, token_used, requirement_id, requested_at, responded_at)
@@ -243,7 +238,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ---- Enqueue CV parse ----
     await enqueueCVParse({
       profileId,
       candidateId,
@@ -253,7 +247,6 @@ export async function POST(req: NextRequest) {
       mimeType: cvFile.type,
     });
 
-    // ---- Admin notification (fire-and-forget) ----
     createNotification("new_application", `New application: ${requirement.title}`, {
       body: candidateName
         ? `${candidateName} applied for ${requirement.title}`
@@ -262,7 +255,6 @@ export async function POST(req: NextRequest) {
       entityId: applicationId,
     }).catch(() => {});
 
-    // ---- Confirmation email (fire-and-forget) ----
     if (normalizedEmail) {
       const unsubUrl = buildUnsubscribeUrl(normalizedEmail);
       sendConfirmationEmail(
