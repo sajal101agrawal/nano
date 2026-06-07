@@ -91,9 +91,23 @@ export function normalizeEmail(email: string): string {
 
 export function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("91") && digits.length === 12) return `+${digits}`;
-  if (digits.length === 10) return `+91${digits}`;
-  return `+${digits}`;
+  if (digits.length < 7 || digits.length > 15) return phone.trim();
+
+  // Indian: 10 digits starting with 6-9 or 91 + 10 digits
+  if (digits.length === 10 && /^[6-9]/.test(digits)) return `+91${digits}`;
+  if (digits.length === 12 && digits.startsWith("91") && /^[6-9]/.test(digits.slice(2))) return `+${digits}`;
+
+  // US/Canada: 10 digits or 1 + 10 digits
+  if (digits.length === 10 && /^[2-9]/.test(digits)) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1") && /^[2-9]/.test(digits.slice(1))) return `+${digits}`;
+
+  // UK: 0 + 10 digits or 44 + 10 digits
+  if (digits.length === 11 && digits.startsWith("0")) return `+44${digits.slice(1)}`;
+  if (digits.length === 12 && digits.startsWith("44")) return `+${digits}`;
+
+  // Generic: ensure + prefix
+  if (!digits.startsWith("0")) return `+${digits}`;
+  return `+${digits.slice(1)}`;
 }
 
 export function normalizeSkill(skill: string): string {

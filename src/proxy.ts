@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
 const ADMIN_SESSION_COOKIE = "nano_admin_session";
-const CANDIDATE_SESSION_COOKIE = "nano_candidate_session";
 
 function getSecret(): Uint8Array {
   const secret = process.env.SESSION_SECRET || "fallback-dev-secret-minimum-32chars";
@@ -10,15 +9,6 @@ function getSecret(): Uint8Array {
 }
 
 async function verifyAdminToken(token: string): Promise<boolean> {
-  try {
-    await jwtVerify(token, getSecret());
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function verifyCandidateToken(token: string): Promise<boolean> {
   try {
     await jwtVerify(token, getSecret());
     return true;
@@ -64,15 +54,6 @@ export async function proxy(req: NextRequest) {
     return response;
   }
 
-  // Candidate API protected routes (apply)
-  if (pathname.startsWith("/api/candidate/apply")) {
-    const token = req.cookies.get(CANDIDATE_SESSION_COOKIE)?.value;
-    if (!token || !(await verifyCandidateToken(token))) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
-    return response;
-  }
-
   // Public routes — allow
   return response;
 }
@@ -81,7 +62,5 @@ export const config = {
   matcher: [
     "/admin/:path*",
     "/api/admin/:path*",
-    "/api/candidate/apply",
-    "/api/candidate/apply/:path*",
   ],
 };

@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
   const candidateName = (formData.get("candidateName") as string | null)?.trim() ?? "";
   const candidateEmailRaw = (formData.get("candidateEmail") as string | null)?.trim() ?? "";
   const candidatePhoneRaw = (formData.get("candidatePhone") as string | null)?.trim() ?? "";
+  const preferencesRaw = (formData.get("preferences") as string | null) ?? "{}";
 
   if (!cvFile || cvFile.size === 0) {
     return NextResponse.json(
@@ -89,6 +90,27 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+
+  let preferences: Record<string, unknown> = {};
+  try {
+    preferences = JSON.parse(preferencesRaw);
+  } catch {
+    preferences = {};
+  }
+
+  const prefOpenTo = Array.isArray(preferences.openTo) ? preferences.openTo as string[] : [];
+  const prefLocations = Array.isArray(preferences.preferredLocations) ? preferences.preferredLocations as string[] : [];
+  const noticePeriodMap: Record<string, number> = {
+    immediate: 0,
+    "15days": 15,
+    "30days": 30,
+    "60days": 60,
+    "90days": 90,
+    "90plus": 120,
+  };
+  const noticePeriodDays = typeof preferences.noticePeriod === "string"
+    ? noticePeriodMap[preferences.noticePeriod] ?? null
+    : null;
 
   const requirement = await queryOne<{ id: string; title: string; status: string }>(
     "SELECT id, title, status FROM requirements WHERE id = $1",
@@ -156,9 +178,25 @@ export async function POST(req: NextRequest) {
                full_name = CASE WHEN full_name IS NULL AND $2 != '' THEN $2 ELSE full_name END,
                primary_email = COALESCE(primary_email, $3),
                primary_phone = COALESCE(primary_phone, $4),
+               open_to_contract = $5,
+               open_to_fulltime = $6,
+               notice_period_days = $7,
+               work_mode = $8,
+               expected_rate = $9,
+               expected_rate_currency = 'INR',
                updated_at = NOW()
            WHERE id = $1`,
-          [candidateId, candidateName, normalizedEmail, normalizedPhone]
+          [
+            candidateId,
+            candidateName,
+            normalizedEmail,
+            normalizedPhone,
+            prefOpenTo.includes("contract") || prefOpenTo.includes("freelance"),
+            prefOpenTo.includes("fulltime"),
+            noticePeriodDays,
+            prefLocations.includes("remote") ? "remote" : "hybrid",
+            preferences.expectedCtc ? String(preferences.expectedCtc) : null,
+          ]
         );
         await client.query(
           "UPDATE candidate_profiles SET is_current = FALSE WHERE candidate_id = $1",
@@ -169,9 +207,22 @@ export async function POST(req: NextRequest) {
         await client.query(
           `INSERT INTO candidates
              (id, primary_email, primary_phone, full_name, source, status,
-              availability_status, last_active_at, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, 'application', 'active', 'available', NOW(), NOW(), NOW())`,
-          [candidateId, normalizedEmail, normalizedPhone, candidateName || null]
+              availability_status, last_active_at, open_to_contract, open_to_fulltime,
+              notice_period_days, work_mode, expected_rate, expected_rate_currency,
+              created_at, updated_at)
+           VALUES ($1, $2, $3, $4, 'application', 'active', 'available', NOW(),
+                   $5, $6, $7, $8, $9, 'INR', NOW(), NOW())`,
+          [
+            candidateId,
+            normalizedEmail,
+            normalizedPhone,
+            candidateName || null,
+            prefOpenTo.includes("contract") || prefOpenTo.includes("freelance"),
+            prefOpenTo.includes("fulltime"),
+            noticePeriodDays,
+            prefLocations.includes("remote") ? "remote" : "hybrid",
+            preferences.expectedCtc ? String(preferences.expectedCtc) : null,
+          ]
         );
       }
 

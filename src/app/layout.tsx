@@ -32,7 +32,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-screen bg-bg text-text-light antialiased">
+      <body className="min-h-screen bg-bg text-text-light antialiased" suppressHydrationWarning>
         {children}
       </body>
     </html>

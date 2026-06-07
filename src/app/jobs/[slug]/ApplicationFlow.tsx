@@ -9,7 +9,7 @@ interface Props {
   questions: RequirementQuestion[];
 }
 
-type FlowStep = "upload" | "details" | "questions" | "submitting" | "done";
+type FlowStep = "upload" | "details" | "preferences" | "questions" | "submitting" | "done";
 
 interface ParsedInfo {
   full_name?: string;
@@ -19,6 +19,15 @@ interface ParsedInfo {
 
 interface Answers {
   [questionId: string]: string | boolean;
+}
+
+interface CandidatePreferences {
+  openTo: string[];
+  noticePeriod: string;
+  preferredLocations: string[];
+  currentCtc: string;
+  expectedCtc: string;
+  expectedHourlyRate: string;
 }
 
 function formatFileSize(bytes: number): string {
@@ -36,16 +45,16 @@ const MAX_SIZE = 10 * 1024 * 1024;
 
 function StepIndicator({ current, steps }: { current: number; steps: number }) {
   return (
-    <div className="flex items-center gap-1.5 mb-8">
+    <div className="flex items-center gap-2 mb-8">
       {Array.from({ length: steps }, (_, i) => (
         <div
           key={i}
-          className={`h-1 rounded-full transition-all duration-400 ${
+          className={`h-1.5 rounded-full transition-all duration-300 ${
             i === current
               ? "w-8 bg-primary"
               : i < current
-              ? "w-4 bg-primary/40"
-              : "w-4 bg-border"
+              ? "w-5 bg-primary/50"
+              : "w-5 bg-slate-200 dark:bg-slate-700"
           }`}
         />
       ))}
@@ -230,18 +239,71 @@ function DetailsStep({
 }) {
   const [error, setError] = useState("");
 
+  const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
+  const isValidPhone = (v: string) => {
+    if (!v.trim()) return true; // optional
+    const digits = v.replace(/\D/g, "");
+    return digits.length >= 7 && digits.length <= 15;
+  };
+
+  const formatName = (v: string) => {
+    return v
+      .replace(/\s+/g, " ")
+      .split(" ")
+      .map((w) => {
+        if (w.length === 0) return "";
+        if (/^(de|da|di|del|van|von|der|le|la|el|al|bin|bint)$/i.test(w)) return w.toLowerCase();
+        return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+      })
+      .join(" ");
+  };
+
+  const handleNameBlur = () => {
+    if (name.trim()) {
+      onNameChange(formatName(name.trim()));
+    }
+  };
+
+  const handleEmailBlur = () => {
+    if (email.trim()) {
+      onEmailChange(email.trim().toLowerCase());
+    }
+  };
+
+  const handlePhoneBlur = () => {
+    if (!phone.trim()) return;
+    const digits = phone.replace(/\D/g, "");
+    // Auto-format Indian mobile numbers
+    if (digits.length === 10 && /^[6-9]/.test(digits)) {
+      onPhoneChange(`+91 ${digits.slice(0, 5)} ${digits.slice(5)}`);
+    } else if (digits.length === 12 && digits.startsWith("91") && /^[6-9]/.test(digits.slice(2))) {
+      onPhoneChange(`+91 ${digits.slice(2, 7)} ${digits.slice(7)}`);
+    } else if (digits.length === 10 && /^[2-9]/.test(digits)) {
+      onPhoneChange(`+1 (${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`);
+    } else if (digits.length === 11 && digits.startsWith("1") && /^[2-9]/.test(digits.slice(1))) {
+      onPhoneChange(`+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`);
+    }
+  };
+
   const handleContinue = () => {
     setError("");
-    if (!name.trim()) {
-      setError("Please enter your name.");
+    if (!name.trim() || name.trim().split(/\s+/).length < 2) {
+      setError("Please enter your full name (first and last).");
       return;
     }
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    if (!email.trim() || !isValidEmail(email)) {
       setError("Please enter a valid email address.");
+      return;
+    }
+    if (phone.trim() && !isValidPhone(phone)) {
+      setError("Please enter a valid phone number (7-15 digits).");
       return;
     }
     onContinue();
   };
+
+  const emailValid = !email.trim() || isValidEmail(email);
+  const phoneValid = !phone.trim() || isValidPhone(phone);
 
   return (
     <div className="animate-fade-up">
@@ -264,9 +326,10 @@ function DetailsStep({
           <input
             type="text"
             autoComplete="name"
-            placeholder="Your full name"
+            placeholder="First and last name"
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
+            onBlur={handleNameBlur}
             className="input-base"
           />
         </div>
@@ -284,16 +347,20 @@ function DetailsStep({
             placeholder="you@example.com"
             value={email}
             onChange={(e) => onEmailChange(e.target.value)}
-            className="input-base"
+            onBlur={handleEmailBlur}
+            className={`input-base ${email.trim() && !emailValid ? "!border-red-400 focus:!border-red-400 focus:!shadow-[0_0_0_3px_rgba(239,68,68,0.15)]" : ""}`}
           />
+          {email.trim() && !emailValid && (
+            <p className="text-[11px] text-red-400 mt-1">Enter a valid email address</p>
+          )}
         </div>
 
         <div>
           <label className="block text-[12px] font-medium text-text-dim mb-1.5">
             Phone number
-            {!parsedInfo.phone && <span className="text-text-muted font-normal ml-1.5">(optional)</span>}
+            <span className="text-text-muted font-normal ml-1.5">(optional)</span>
             {parsedInfo.phone && (
-              <span className="text-text-muted font-normal ml-1.5">(from resume)</span>
+              <span className="text-text-muted font-normal ml-1">&mdash; from resume</span>
             )}
           </label>
           <input
@@ -302,8 +369,15 @@ function DetailsStep({
             placeholder="+91 98765 43210"
             value={phone}
             onChange={(e) => onPhoneChange(e.target.value)}
-            className="input-base"
+            onBlur={handlePhoneBlur}
+            className={`input-base ${phone.trim() && !phoneValid ? "!border-red-400 focus:!border-red-400 focus:!shadow-[0_0_0_3px_rgba(239,68,68,0.15)]" : ""}`}
           />
+          {phone.trim() && !phoneValid && (
+            <p className="text-[11px] text-red-400 mt-1">Enter a valid phone number</p>
+          )}
+          {phone.trim() && phoneValid && phone.includes("+") && (
+            <p className="text-[11px] text-text-muted mt-1">Formatted with country code</p>
+          )}
         </div>
       </div>
 
@@ -324,6 +398,312 @@ function DetailsStep({
         style={{ padding: "12px 16px", fontSize: "14px", borderRadius: "var(--radius-md)" }}
       >
         Continue
+      </button>
+    </div>
+  );
+}
+
+const ENGAGEMENT_OPTIONS = [
+  { value: "fulltime", label: "Full-time" },
+  { value: "contract", label: "Contract" },
+  { value: "freelance", label: "Freelance" },
+];
+
+const NOTICE_PERIOD_OPTIONS = [
+  { value: "immediate", label: "Immediately" },
+  { value: "15days", label: "15 days" },
+  { value: "30days", label: "30 days" },
+  { value: "60days", label: "60 days" },
+  { value: "90days", label: "90 days" },
+  { value: "90plus", label: "90+ days" },
+];
+
+const LOCATION_OPTIONS = [
+  { value: "remote", label: "Remote" },
+  { value: "bengaluru", label: "Bengaluru" },
+  { value: "gurugram", label: "Gurugram" },
+  { value: "hyderabad", label: "Hyderabad" },
+  { value: "mumbai", label: "Mumbai" },
+  { value: "pune", label: "Pune" },
+  { value: "chennai", label: "Chennai" },
+  { value: "noida", label: "Noida" },
+];
+
+function PreferencesStep({
+  preferences,
+  onPreferencesChange,
+  onContinue,
+  submitting,
+  submitError,
+}: {
+  preferences: CandidatePreferences;
+  onPreferencesChange: (p: CandidatePreferences) => void;
+  onContinue: () => void;
+  submitting: boolean;
+  submitError: string;
+}) {
+  const [error, setError] = useState("");
+
+  const toggleArrayValue = (arr: string[], value: string): string[] => {
+    return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
+  };
+
+  const handleContinue = () => {
+    setError("");
+    if (preferences.openTo.length === 0) {
+      setError("Please select at least one engagement type.");
+      return;
+    }
+    if (!preferences.noticePeriod) {
+      setError("Please select your notice period.");
+      return;
+    }
+    if (preferences.preferredLocations.length === 0) {
+      setError("Please select at least one preferred location.");
+      return;
+    }
+    if (!preferences.currentCtc.trim()) {
+      setError("Please enter your current / previous CTC.");
+      return;
+    }
+    if (!preferences.expectedCtc.trim()) {
+      setError("Please enter your expected CTC.");
+      return;
+    }
+    if (
+      (preferences.openTo.includes("contract") || preferences.openTo.includes("freelance")) &&
+      !preferences.expectedHourlyRate.trim()
+    ) {
+      setError("Please enter your expected hourly rate.");
+      return;
+    }
+    onContinue();
+  };
+
+  const formatCtcInput = (value: string): string => {
+    const digits = value.replace(/[^\d.]/g, "");
+    return digits;
+  };
+
+  return (
+    <div className="animate-fade-up">
+      <div className="mb-6">
+        <h2 className="font-display text-xl font-bold text-text-light tracking-tight mb-1.5">
+          Your preferences
+        </h2>
+        <p className="text-sm text-text-dim leading-relaxed">
+          Help us match you with the right opportunity.
+        </p>
+      </div>
+
+      <div className="space-y-6">
+        {/* Open to */}
+        <div>
+          <label className="block text-[12px] font-medium text-text-dim mb-2.5">
+            I am open to <span className="text-red-400">*</span>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {ENGAGEMENT_OPTIONS.map((opt) => {
+              const selected = preferences.openTo.includes(opt.value);
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() =>
+                    onPreferencesChange({
+                      ...preferences,
+                      openTo: toggleArrayValue(preferences.openTo, opt.value),
+                    })
+                  }
+                  className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-[13px] font-medium border transition-all ${
+                    selected
+                      ? "border-primary bg-primary/[0.08] text-primary"
+                      : "border-border bg-bg-secondary text-text-dim hover:border-border-hover hover:text-text-light"
+                  }`}
+                >
+                  <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all ${
+                    selected ? "border-primary bg-primary" : "border-border"
+                  }`}>
+                    {selected && (
+                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                  </span>
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Notice period */}
+        <div>
+          <label className="block text-[12px] font-medium text-text-dim mb-2.5">
+            How soon can you start? <span className="text-red-400">*</span>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {NOTICE_PERIOD_OPTIONS.map((opt) => {
+              const selected = preferences.noticePeriod === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() =>
+                    onPreferencesChange({ ...preferences, noticePeriod: opt.value })
+                  }
+                  className={`px-3.5 py-2 rounded-lg text-[13px] font-medium border transition-all ${
+                    selected
+                      ? "border-primary bg-primary/[0.08] text-primary"
+                      : "border-border bg-bg-secondary text-text-dim hover:border-border-hover hover:text-text-light"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Preferred locations */}
+        <div>
+          <label className="block text-[12px] font-medium text-text-dim mb-2.5">
+            Preferred work location <span className="text-red-400">*</span>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {LOCATION_OPTIONS.map((opt) => {
+              const selected = preferences.preferredLocations.includes(opt.value);
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() =>
+                    onPreferencesChange({
+                      ...preferences,
+                      preferredLocations: toggleArrayValue(preferences.preferredLocations, opt.value),
+                    })
+                  }
+                  className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-[13px] font-medium border transition-all ${
+                    selected
+                      ? "border-primary bg-primary/[0.08] text-primary"
+                      : "border-border bg-bg-secondary text-text-dim hover:border-border-hover hover:text-text-light"
+                  }`}
+                >
+                  <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all ${
+                    selected ? "border-primary bg-primary" : "border-border"
+                  }`}>
+                    {selected && (
+                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                  </span>
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Current CTC */}
+        <div>
+          <label className="block text-[12px] font-medium text-text-dim mb-1.5">
+            Current / previous annual CTC <span className="text-red-400">*</span>
+            <span className="text-text-muted font-normal ml-1.5">(in lakhs)</span>
+          </label>
+          <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[12px] text-text-muted pointer-events-none font-medium">INR</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="e.g. 12.5"
+              value={preferences.currentCtc}
+              onChange={(e) =>
+                onPreferencesChange({ ...preferences, currentCtc: formatCtcInput(e.target.value) })
+              }
+              className="input-base"
+              style={{ paddingLeft: "52px", paddingRight: "44px" }}
+            />
+            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[12px] text-text-muted pointer-events-none">LPA</span>
+          </div>
+        </div>
+
+        {/* Expected CTC */}
+        <div>
+          <label className="block text-[12px] font-medium text-text-dim mb-1.5">
+            Expected annual CTC <span className="text-red-400">*</span>
+            <span className="text-text-muted font-normal ml-1.5">(in lakhs)</span>
+          </label>
+          <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[12px] text-text-muted pointer-events-none font-medium">INR</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="e.g. 18"
+              value={preferences.expectedCtc}
+              onChange={(e) =>
+                onPreferencesChange({ ...preferences, expectedCtc: formatCtcInput(e.target.value) })
+              }
+              className="input-base"
+              style={{ paddingLeft: "52px", paddingRight: "44px" }}
+            />
+            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[12px] text-text-muted pointer-events-none">LPA</span>
+          </div>
+        </div>
+
+        {/* Expected hourly rate - only when contract or freelance selected */}
+        {(preferences.openTo.includes("contract") || preferences.openTo.includes("freelance")) && (
+          <div>
+            <label className="block text-[12px] font-medium text-text-dim mb-1.5">
+              Expected hourly rate <span className="text-red-400">*</span>
+              <span className="text-text-muted font-normal ml-1.5">(for contract/freelance)</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[12px] text-text-muted pointer-events-none font-medium">INR</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="e.g. 2500"
+                value={preferences.expectedHourlyRate}
+                onChange={(e) =>
+                  onPreferencesChange({ ...preferences, expectedHourlyRate: formatCtcInput(e.target.value) })
+                }
+                className="input-base"
+                style={{ paddingLeft: "52px", paddingRight: "36px" }}
+              />
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[12px] text-text-muted pointer-events-none">/hr</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {(error || submitError) && (
+        <p className="text-[13px] text-red-500 flex items-start gap-1.5 mt-5">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-0.5 flex-shrink-0">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          {error || submitError}
+        </p>
+      )}
+
+      <button
+        onClick={handleContinue}
+        disabled={submitting}
+        className="btn btn-primary w-full mt-6"
+        style={{ padding: "12px 16px", fontSize: "14px", borderRadius: "var(--radius-md)" }}
+      >
+        {submitting ? (
+          <span className="flex items-center justify-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            Submitting...
+          </span>
+        ) : (
+          "Submit Application"
+        )}
       </button>
     </div>
   );
@@ -536,6 +916,14 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
   const [candidatePhone, setCandidatePhone] = useState("");
+  const [preferences, setPreferences] = useState<CandidatePreferences>({
+    openTo: [],
+    noticePeriod: "",
+    preferredLocations: [],
+    currentCtc: "",
+    expectedCtc: "",
+    expectedHourlyRate: "",
+  });
   const [answers, setAnswers] = useState<Answers>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -576,11 +964,11 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
   };
 
   const handleDetailsContinue = () => {
-    if (questions.length === 0) {
-      handleFinalSubmit();
-    } else {
-      setStep("questions");
-    }
+    setStep("preferences");
+  };
+
+  const handlePreferencesContinue = () => {
+    handleFinalSubmit();
   };
 
   const handleFinalSubmit = async () => {
@@ -597,6 +985,7 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
       formData.append("candidateName", candidateName.trim());
       formData.append("candidateEmail", candidateEmail.trim());
       if (candidatePhone.trim()) formData.append("candidatePhone", candidatePhone.trim());
+      formData.append("preferences", JSON.stringify(preferences));
 
       const res = await fetch("/api/candidate/apply", {
         method: "POST",
@@ -606,7 +995,7 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
 
       if (!data.success) {
         setSubmitError(data.error || "Submission failed. Please try again.");
-        setStep("details");
+        setStep("preferences");
         setSubmitting(false);
         return;
       }
@@ -614,18 +1003,18 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
       setStep("done");
     } catch {
       setSubmitError("Network error. Please try again.");
-      setStep("details");
+      setStep("preferences");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const totalSteps = questions.length > 0 ? 3 : 2;
+  const totalSteps = 3;
   const currentStepIndex =
     step === "upload" ? 0
     : step === "details" ? 1
-    : step === "questions" ? 2
-    : step === "submitting" ? (questions.length > 0 ? 2 : 1)
+    : step === "preferences" ? 2
+    : step === "submitting" ? 2
     : 0;
 
   return (
@@ -658,12 +1047,11 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
         />
       )}
 
-      {step === "questions" && (
-        <QuestionsStep
-          questions={questions}
-          answers={answers}
-          onAnswerChange={handleAnswerChange}
-          onSubmit={handleFinalSubmit}
+      {step === "preferences" && (
+        <PreferencesStep
+          preferences={preferences}
+          onPreferencesChange={setPreferences}
+          onContinue={handlePreferencesContinue}
           submitting={submitting}
           submitError={submitError}
         />
