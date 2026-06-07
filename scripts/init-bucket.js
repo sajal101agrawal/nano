@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Ensures the S3 bucket exists — idempotent, safe to run on every boot.
+// For production (R2/S3), this is best-effort and won't block startup.
 require("dotenv").config();
 
 const { S3Client, CreateBucketCommand, HeadBucketCommand } = require("@aws-sdk/client-s3");
@@ -10,6 +11,14 @@ const region = process.env.S3_REGION || "us-east-1";
 
 if (!endpoint) {
   console.log("[init-bucket] S3_ENDPOINT not set, skipping bucket init.");
+  process.exit(0);
+}
+
+// For non-local endpoints (R2, S3), assume bucket exists and skip init
+// These services require pre-created buckets via their dashboards
+const isLocalEndpoint = endpoint.includes("localhost") || endpoint.includes("minio") || endpoint.includes("127.0.0.1");
+if (!isLocalEndpoint) {
+  console.log(`[init-bucket] Using external S3 (${endpoint}), assuming bucket "${bucket}" exists.`);
   process.exit(0);
 }
 

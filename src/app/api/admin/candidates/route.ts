@@ -37,8 +37,7 @@ const CANDIDATE_COLS = `
 
 // Minimum cosine similarity threshold for vector search results (0-1 scale)
 // OpenAI embeddings typically produce lower scores (10-30%) for query-to-document matching
-// 0.1 filters out only the most irrelevant candidates while keeping reasonable matches
-const MIN_VECTOR_SCORE = 0.1;
+const MIN_VECTOR_SCORE = 0.05;
 
 export async function GET(req: NextRequest) {
   try {
@@ -53,10 +52,10 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20")));
     const offset = (page - 1) * limit;
 
-    const buildFilterConditions = (params: unknown[], baseConditions: string[]) => {
+    const buildFilterConditions = (params: unknown[], baseConditions: string[], startIdx: number) => {
       if (availability && availability !== "all") {
         params.push(availability);
-        baseConditions.push(`c.availability_status = $${params.length}`);
+        baseConditions.push(`c.availability_status = $${startIdx + params.length - 1}`);
       }
       if (contract === "true") {
         baseConditions.push(`c.open_to_contract = TRUE`);
@@ -65,58 +64,116 @@ export async function GET(req: NextRequest) {
         const exp = parseInt(minExp);
         if (!isNaN(exp)) {
           params.push(exp);
-          baseConditions.push(`c.total_experience_years >= $${params.length}`);
+          baseConditions.push(`c.total_experience_years >= $${startIdx + params.length - 1}`);
         }
       }
     };
 
     if (q) {
-      // Try vector search first
+      // Hybrid search: vector similarity + text matching
       try {
         const embedding = await generateEmbedding(q);
         const vectorStr = `[${embedding.join(",")}]`;
 
-        const vecParams: unknown[] = [vectorStr];
+        const vecParams: unknown[] = [vectorStr, q]; // $1 = vector, $2 = search query
         const vecConditions: string[] = ["c.status != 'deleted'", "cp.is_current = TRUE"];
-        buildFilterConditions(vecParams, vecConditions);
+        
+        // Build additional filter conditions starting at $3
+        const additionalParams: unknown[] = [];
+        if (availability && availability !== "all") {
+          additionalParams.push(availability);
+          vecConditions.push(`c.availability_status = $${2 + additionalParams.length}`);
+        }
+        if (contract === "true") {
+          vecConditions.push(`c.open_to_contract = TRUE`);
+        }
+        if (minExp) {
+          const exp = parseInt(minExp);
+          if (!isNaN(exp)) {
+            additionalParams.push(exp);
+            vecConditions.push(`c.total_experience_years >= $${2 + additionalParams.length}`);
+          }
+        }
 
+        const allParams = [...vecParams, ...additionalParams];
         const vecWhere = vecConditions.join(" AND ");
 
+        // Hybrid search: combines vector similarity with text matching
+        const hybridSql = `
+          WITH scored AS (
+            SELECT
+              c.id AS candidate_id,
+              1 - (cp.embedding <=> $1::vector) AS vector_score,
+              CASE 
+                WHEN cp.summary ILIKE '%' || $2 || '%' THEN 0.3
+                WHEN cp.parsed_json::text ILIKE '%' || $2 || '%' THEN 0.2
+                ELSE 0
+              END AS text_bonus,
+              CASE
+                WHEN EXISTS (
+                  SELECT 1 FROM candidate_skills cs 
+                  WHERE cs.candidate_id = c.id 
+                  AND (cs.skill ILIKE '%' || $2 || '%' OR cs.skill_normalized % lower($2))
+                ) THEN 0.2
+                ELSE 0
+              END AS skill_bonus
+            FROM candidate_profiles cp
+            JOIN candidates c ON c.id = cp.candidate_id
+            WHERE ${vecWhere}
+          ),
+          ranked AS (
+            SELECT 
+              candidate_id,
+              vector_score,
+              text_bonus,
+              skill_bonus,
+              (vector_score + text_bonus + skill_bonus) AS combined_score
+            FROM scored
+            WHERE vector_score >= ${MIN_VECTOR_SCORE} OR text_bonus > 0 OR skill_bonus > 0
+            ORDER BY combined_score DESC
+            LIMIT 200
+          )
+          SELECT ${CANDIDATE_COLS}, r.vector_score, r.combined_score
+          FROM ranked r
+          JOIN candidates c ON c.id = r.candidate_id
+          LEFT JOIN candidate_profiles cp ON cp.candidate_id = c.id AND cp.is_current = TRUE
+          ORDER BY r.combined_score DESC
+          LIMIT $${allParams.length + 1} OFFSET $${allParams.length + 2}
+        `;
+
+        const countSql = `
+          WITH scored AS (
+            SELECT
+              c.id AS candidate_id,
+              1 - (cp.embedding <=> $1::vector) AS vector_score,
+              CASE 
+                WHEN cp.summary ILIKE '%' || $2 || '%' THEN 0.3
+                WHEN cp.parsed_json::text ILIKE '%' || $2 || '%' THEN 0.2
+                ELSE 0
+              END AS text_bonus,
+              CASE
+                WHEN EXISTS (
+                  SELECT 1 FROM candidate_skills cs 
+                  WHERE cs.candidate_id = c.id 
+                  AND (cs.skill ILIKE '%' || $2 || '%' OR cs.skill_normalized % lower($2))
+                ) THEN 0.2
+                ELSE 0
+              END AS skill_bonus
+            FROM candidate_profiles cp
+            JOIN candidates c ON c.id = cp.candidate_id
+            WHERE ${vecWhere}
+          )
+          SELECT COUNT(*) AS count
+          FROM scored
+          WHERE vector_score >= ${MIN_VECTOR_SCORE} OR text_bonus > 0 OR skill_bonus > 0
+        `;
+
         const [rows, countRows] = await Promise.all([
-          query<CandidateListItem & { raw_skills: string; vector_score: number }>(
-            `WITH ranked AS (
-               SELECT c.id AS candidate_id,
-                      1 - (cp.embedding <=> $1::vector) AS vector_score
-               FROM candidate_profiles cp
-               JOIN candidates c ON c.id = cp.candidate_id
-               WHERE ${vecWhere}
-               ORDER BY cp.embedding <=> $1::vector
-               LIMIT 200
-             )
-             SELECT ${CANDIDATE_COLS}, r.vector_score
-             FROM ranked r
-             JOIN candidates c ON c.id = r.candidate_id
-             LEFT JOIN candidate_profiles cp ON cp.candidate_id = c.id AND cp.is_current = TRUE
-             WHERE r.vector_score >= ${MIN_VECTOR_SCORE}
-             ORDER BY r.vector_score DESC
-             LIMIT $${vecParams.length + 1} OFFSET $${vecParams.length + 2}`,
-            [...vecParams, limit, offset]
+          query<CandidateListItem & { raw_skills: string; vector_score: number; combined_score: number }>(
+            hybridSql,
+            [...allParams, limit, offset]
           ),
-          query<{ count: string }>(
-            `WITH ranked AS (
-               SELECT c.id AS candidate_id,
-                      1 - (cp.embedding <=> $1::vector) AS vector_score
-               FROM candidate_profiles cp
-               JOIN candidates c ON c.id = cp.candidate_id
-               WHERE ${vecWhere}
-               ORDER BY cp.embedding <=> $1::vector
-               LIMIT 200
-             )
-             SELECT COUNT(*) AS count
-             FROM ranked
-             WHERE vector_score >= ${MIN_VECTOR_SCORE}`,
-            vecParams
-          ),
+          query<{ count: string }>(countSql, allParams),
         ]);
 
         const total = parseInt(countRows[0]?.count || "0");
@@ -157,7 +214,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    buildFilterConditions(params, conditions);
+    buildFilterConditions(params, conditions, 1);
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 

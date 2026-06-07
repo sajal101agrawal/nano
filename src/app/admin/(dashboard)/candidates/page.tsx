@@ -52,10 +52,9 @@ const SELECT_COLS = `
 
 // Minimum cosine similarity threshold for vector search results (0-1 scale)
 // OpenAI embeddings typically produce lower scores (10-30%) for query-to-document matching
-// 0.1 filters out only the most irrelevant candidates while keeping reasonable matches
-const MIN_VECTOR_SCORE = 0.1;
+const MIN_VECTOR_SCORE = 0.05;
 
-async function getCandidatesVectorSearch(
+async function getCandidatesHybridSearch(
   q: string,
   sp: ResolvedSP
 ): Promise<{ rows: CandidateRow[]; total: number; page: number; totalPages: number; isVectorSearch: boolean }> {
@@ -75,74 +74,101 @@ async function getCandidatesVectorSearch(
 
   const vectorStr = `[${embedding.join(",")}]`;
 
-  // filterParams for the vector query starts with the embedding at $1
+  // Build filter conditions
   const filterConditions: string[] = ["c.status != 'deleted'", "cp.is_current = TRUE"];
-  const filterParams: unknown[] = [vectorStr];
-
-  // countParams/countConditions mirror the same filters but without the embedding
-  const countConditions: string[] = ["c.status != 'deleted'", "cp.is_current = TRUE"];
-  const countParams: unknown[] = [];
+  const filterParams: unknown[] = [vectorStr, q]; // $1 = vector, $2 = search query
 
   if (availability) {
     filterParams.push(availability);
     filterConditions.push(`c.availability_status = $${filterParams.length}`);
-    countParams.push(availability);
-    countConditions.push(`c.availability_status = $${countParams.length}`);
   }
   if (contract) {
     filterConditions.push("c.open_to_contract = TRUE");
-    countConditions.push("c.open_to_contract = TRUE");
   }
   if (minExp !== null) {
     filterParams.push(minExp);
     filterConditions.push(`COALESCE(cp.total_experience_years, c.total_experience_years) >= $${filterParams.length}`);
-    countParams.push(minExp);
-    countConditions.push(`COALESCE(cp.total_experience_years, c.total_experience_years) >= $${countParams.length}`);
   }
 
   const where = filterConditions.join(" AND ");
 
-  // Vector search with minimum similarity threshold
-  const vectorSql = `
-    WITH ranked AS (
+  // Hybrid search: combines vector similarity with text matching
+  // - vector_score: semantic similarity (0-1)
+  // - text_match: bonus for direct text matches in summary/parsed content
+  // - skill_match: bonus for matching skills
+  const hybridSql = `
+    WITH scored AS (
       SELECT
         c.id AS candidate_id,
-        1 - (cp.embedding <=> $1::vector) AS vector_score
+        1 - (cp.embedding <=> $1::vector) AS vector_score,
+        CASE 
+          WHEN cp.summary ILIKE '%' || $2 || '%' THEN 0.3
+          WHEN cp.parsed_json::text ILIKE '%' || $2 || '%' THEN 0.2
+          ELSE 0
+        END AS text_bonus,
+        CASE
+          WHEN EXISTS (
+            SELECT 1 FROM candidate_skills cs 
+            WHERE cs.candidate_id = c.id 
+            AND (cs.skill ILIKE '%' || $2 || '%' OR cs.skill_normalized % lower($2))
+          ) THEN 0.2
+          ELSE 0
+        END AS skill_bonus
       FROM candidate_profiles cp
       JOIN candidates c ON c.id = cp.candidate_id
       WHERE ${where}
-      ORDER BY cp.embedding <=> $1::vector
+    ),
+    ranked AS (
+      SELECT 
+        candidate_id,
+        vector_score,
+        text_bonus,
+        skill_bonus,
+        (vector_score + text_bonus + skill_bonus) AS combined_score
+      FROM scored
+      WHERE vector_score >= ${MIN_VECTOR_SCORE} OR text_bonus > 0 OR skill_bonus > 0
+      ORDER BY combined_score DESC
       LIMIT 200
     )
     SELECT ${SELECT_COLS},
-           r.vector_score
+           r.vector_score,
+           r.combined_score
     FROM ranked r
     JOIN candidates c ON c.id = r.candidate_id
     LEFT JOIN candidate_profiles cp ON cp.candidate_id = c.id AND cp.is_current = TRUE
-    WHERE r.vector_score >= ${MIN_VECTOR_SCORE}
-    ORDER BY r.vector_score DESC
+    ORDER BY r.combined_score DESC
     LIMIT $${filterParams.length + 1} OFFSET $${filterParams.length + 2}
   `;
 
-  // Count only candidates above the similarity threshold
   const countSql = `
-    WITH ranked AS (
+    WITH scored AS (
       SELECT
         c.id AS candidate_id,
-        1 - (cp.embedding <=> $1::vector) AS vector_score
+        1 - (cp.embedding <=> $1::vector) AS vector_score,
+        CASE 
+          WHEN cp.summary ILIKE '%' || $2 || '%' THEN 0.3
+          WHEN cp.parsed_json::text ILIKE '%' || $2 || '%' THEN 0.2
+          ELSE 0
+        END AS text_bonus,
+        CASE
+          WHEN EXISTS (
+            SELECT 1 FROM candidate_skills cs 
+            WHERE cs.candidate_id = c.id 
+            AND (cs.skill ILIKE '%' || $2 || '%' OR cs.skill_normalized % lower($2))
+          ) THEN 0.2
+          ELSE 0
+        END AS skill_bonus
       FROM candidate_profiles cp
       JOIN candidates c ON c.id = cp.candidate_id
       WHERE ${where}
-      ORDER BY cp.embedding <=> $1::vector
-      LIMIT 200
     )
     SELECT COUNT(*) AS count
-    FROM ranked
-    WHERE vector_score >= ${MIN_VECTOR_SCORE}
+    FROM scored
+    WHERE vector_score >= ${MIN_VECTOR_SCORE} OR text_bonus > 0 OR skill_bonus > 0
   `;
 
   const [rows, countRows] = await Promise.all([
-    query<CandidateRow & { vector_score: number }>(vectorSql, [...filterParams, limit, offset]),
+    query<CandidateRow & { vector_score: number; combined_score: number }>(hybridSql, [...filterParams, limit, offset]),
     query<{ count: string }>(countSql, filterParams),
   ]);
 
@@ -234,7 +260,7 @@ async function getCandidates(sp: ResolvedSP): Promise<{
   const q = sp.q?.trim() || "";
 
   if (q) {
-    return getCandidatesVectorSearch(q, sp);
+    return getCandidatesHybridSearch(q, sp);
   }
 
   return { ...(await getCandidatesFallback("", sp)), isVectorSearch: false };
