@@ -1,4 +1,5 @@
 import { query } from "@/lib/db";
+import { generateEmbedding } from "@/lib/embeddings";
 import Link from "next/link";
 import { formatRelativeTime, availabilityBadgeClass, getInitials } from "@/lib/cn";
 import CandidateFilters from "./CandidateFilters";
@@ -19,6 +20,14 @@ interface PageProps {
 
 type ResolvedSP = { q?: string; availability?: string; contract?: string; min_experience?: string; page?: string };
 
+type CandidateRow = {
+  id: string; full_name: string; primary_email: string; headline: string;
+  availability_status: string; open_to_contract: boolean;
+  total_experience_years: number; last_active_at: string;
+  current_title: string; current_company: string;
+  raw_skills: string;
+};
+
 function buildPageUrl(sp: ResolvedSP, newPage: number) {
   const p = new URLSearchParams();
   if (sp.q) p.set("q", sp.q);
@@ -29,8 +38,102 @@ function buildPageUrl(sp: ResolvedSP, newPage: number) {
   return `/admin/candidates?${p.toString()}`;
 }
 
-async function getCandidates(sp: ResolvedSP) {
-  const q = sp.q?.trim() || "";
+const SELECT_COLS = `
+  c.id, c.full_name, c.primary_email, c.current_title,
+  c.current_company, c.availability_status, c.open_to_contract,
+  c.last_active_at,
+  COALESCE(cp.total_experience_years, c.total_experience_years) AS total_experience_years,
+  COALESCE(
+    (SELECT STRING_AGG(cs.skill, ',' ORDER BY cs.years DESC NULLS LAST)
+     FROM candidate_skills cs WHERE cs.candidate_id = c.id LIMIT 5),
+    ''
+  ) AS raw_skills
+`;
+
+async function getCandidatesVectorSearch(
+  q: string,
+  sp: ResolvedSP
+): Promise<{ rows: CandidateRow[]; total: number; page: number; totalPages: number; isVectorSearch: boolean }> {
+  const availability = sp.availability || "";
+  const contract = sp.contract === "true";
+  const minExp = sp.min_experience ? parseInt(sp.min_experience) : null;
+  const page = Math.max(1, parseInt(sp.page || "1"));
+  const limit = 20;
+  const offset = (page - 1) * limit;
+
+  let embedding: number[];
+  try {
+    embedding = await generateEmbedding(q);
+  } catch {
+    return { ...(await getCandidatesFallback(q, sp)), isVectorSearch: false };
+  }
+
+  const vectorStr = `[${embedding.join(",")}]`;
+
+  const filterConditions: string[] = ["c.status != 'deleted'", "cp.is_current = TRUE"];
+  const filterParams: unknown[] = [vectorStr];
+
+  if (availability) {
+    filterParams.push(availability);
+    filterConditions.push(`c.availability_status = $${filterParams.length}`);
+  }
+  if (contract) {
+    filterConditions.push("c.open_to_contract = TRUE");
+  }
+  if (minExp !== null) {
+    filterParams.push(minExp);
+    filterConditions.push(`COALESCE(cp.total_experience_years, c.total_experience_years) >= $${filterParams.length}`);
+  }
+
+  const where = filterConditions.join(" AND ");
+
+  const vectorSql = `
+    WITH ranked AS (
+      SELECT
+        c.id AS candidate_id,
+        1 - (cp.embedding <=> $1::vector) AS vector_score
+      FROM candidate_profiles cp
+      JOIN candidates c ON c.id = cp.candidate_id
+      WHERE ${where}
+      ORDER BY cp.embedding <=> $1::vector
+      LIMIT 200
+    )
+    SELECT ${SELECT_COLS},
+           r.vector_score
+    FROM ranked r
+    JOIN candidates c ON c.id = r.candidate_id
+    LEFT JOIN candidate_profiles cp ON cp.candidate_id = c.id AND cp.is_current = TRUE
+    ORDER BY r.vector_score DESC
+    LIMIT $${filterParams.length + 1} OFFSET $${filterParams.length + 2}
+  `;
+
+  const countSql = `
+    SELECT COUNT(*) AS count
+    FROM candidate_profiles cp
+    JOIN candidates c ON c.id = cp.candidate_id
+    WHERE ${where}
+  `;
+
+  const [rows, countRows] = await Promise.all([
+    query<CandidateRow & { vector_score: number }>(vectorSql, [...filterParams, limit, offset]),
+    query<{ count: string }>(countSql, filterParams),
+  ]);
+
+  const total = Math.min(parseInt(countRows[0]?.count || "0"), 200);
+
+  return {
+    rows,
+    total,
+    page,
+    totalPages: Math.ceil(total / limit),
+    isVectorSearch: true,
+  };
+}
+
+async function getCandidatesFallback(
+  q: string,
+  sp: ResolvedSP
+): Promise<{ rows: CandidateRow[]; total: number; page: number; totalPages: number }> {
   const availability = sp.availability || "";
   const contract = sp.contract === "true";
   const minExp = sp.min_experience ? parseInt(sp.min_experience) : null;
@@ -42,11 +145,19 @@ async function getCandidates(sp: ResolvedSP) {
   const params: unknown[] = [];
 
   if (q) {
-    params.push(`%${q}%`);
+    params.push(q);
     conditions.push(
-      `(c.full_name ILIKE $${params.length} OR c.primary_email ILIKE $${params.length} OR EXISTS (
-        SELECT 1 FROM candidate_skills cs WHERE cs.candidate_id = c.id AND cs.skill ILIKE $${params.length}
-      ))`
+      `(c.full_name ILIKE '%' || $${params.length} || '%'
+        OR c.primary_email ILIKE '%' || $${params.length} || '%'
+        OR c.headline ILIKE '%' || $${params.length} || '%'
+        OR c.full_name % $${params.length}
+        OR EXISTS (
+          SELECT 1 FROM candidate_skills cs
+          WHERE cs.candidate_id = c.id AND (
+            cs.skill ILIKE '%' || $${params.length} || '%'
+            OR cs.skill_normalized % lower($${params.length})
+          )
+        ))`
     );
   }
 
@@ -54,35 +165,19 @@ async function getCandidates(sp: ResolvedSP) {
     params.push(availability);
     conditions.push(`c.availability_status = $${params.length}`);
   }
-
   if (contract) {
     conditions.push("c.open_to_contract = TRUE");
   }
-
   if (minExp !== null) {
     params.push(minExp);
-    conditions.push(`COALESCE(cp.total_experience_years, 0) >= $${params.length}`);
+    conditions.push(`COALESCE(cp.total_experience_years, c.total_experience_years) >= $${params.length}`);
   }
 
   const where = `WHERE ${conditions.join(" AND ")}`;
 
   const [rows, countRows] = await Promise.all([
-    query<{
-      id: string; full_name: string; primary_email: string; headline: string;
-      availability_status: string; open_to_contract: boolean;
-      total_experience_years: number; last_active_at: string;
-      current_title: string; current_company: string;
-      raw_skills: string;
-    }>(
-      `SELECT c.id, c.full_name, c.primary_email, c.current_title,
-              c.current_company, c.availability_status, c.open_to_contract,
-              c.last_active_at,
-              COALESCE(cp.total_experience_years, c.total_experience_years) AS total_experience_years,
-              COALESCE(
-                (SELECT STRING_AGG(cs.skill, ',' ORDER BY cs.years DESC NULLS LAST)
-                 FROM candidate_skills cs WHERE cs.candidate_id = c.id LIMIT 5),
-                ''
-              ) AS raw_skills
+    query<CandidateRow>(
+      `SELECT ${SELECT_COLS}
        FROM candidates c
        LEFT JOIN candidate_profiles cp ON cp.candidate_id = c.id AND cp.is_current = TRUE
        ${where}
@@ -104,6 +199,18 @@ async function getCandidates(sp: ResolvedSP) {
     page,
     totalPages: Math.ceil(parseInt(countRows[0]?.count || "0") / limit),
   };
+}
+
+async function getCandidates(sp: ResolvedSP): Promise<{
+  rows: CandidateRow[]; total: number; page: number; totalPages: number; isVectorSearch: boolean;
+}> {
+  const q = sp.q?.trim() || "";
+
+  if (q) {
+    return getCandidatesVectorSearch(q, sp);
+  }
+
+  return { ...(await getCandidatesFallback("", sp)), isVectorSearch: false };
 }
 
 export default async function CandidatesPage({ searchParams }: PageProps) {

@@ -288,8 +288,9 @@ export async function GET(
           };
           drawCat(cats[i], ML);
           if (cats[i+1]) drawCat(cats[i+1], ML + cW + 16);
-          const h1 = doc.heightOfString(grouped[cats[i]].join(", "), { width: cW, fontSize: 8.5 });
-          const h2 = cats[i+1] ? doc.heightOfString(grouped[cats[i+1]].join(", "), { width: cW, fontSize: 8.5 }) : 0;
+          doc.fontSize(8.5);
+          const h1 = doc.heightOfString(grouped[cats[i]].join(", "), { width: cW });
+          const h2 = cats[i+1] ? doc.heightOfString(grouped[cats[i+1]].join(", "), { width: cW }) : 0;
           cy = rowY + 11 + Math.max(h1, h2) + 8;
         }
       } else {
