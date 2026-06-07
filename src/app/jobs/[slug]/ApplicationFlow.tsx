@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { Requirement, RequirementQuestion } from "@/types";
 
@@ -909,9 +910,12 @@ function DoneStep({ title }: { title: string }) {
 }
 
 export default function ApplicationFlow({ requirement, questions }: Props) {
+  const searchParams = useSearchParams();
   const [step, setStep] = useState<FlowStep>("upload");
   const [cvFile, setCvFile] = useState<File | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [parsedInfo, setParsedInfo] = useState<ParsedInfo>({});
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
@@ -927,9 +931,87 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
   const [answers, setAnswers] = useState<Answers>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [cvFilenameFromDraft, setCvFilenameFromDraft] = useState<string | null>(null);
+
+  // URL state management
+  const updateUrl = useCallback((newDraftId: string | null, newStep: string) => {
+    const url = new URL(window.location.href);
+    if (newDraftId) url.searchParams.set("d", newDraftId);
+    if (newStep) url.searchParams.set("s", newStep);
+    window.history.replaceState({}, "", url.toString());
+  }, []);
+
+  // Resume from URL on mount
+  useEffect(() => {
+    const urlDraftId = searchParams.get("d");
+    const urlStep = searchParams.get("s");
+
+    if (urlDraftId) {
+      setLoading(true);
+      fetch(`/api/candidate/draft/${urlDraftId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.draft) {
+            const d = data.draft;
+            setDraftId(urlDraftId);
+            setCvFilenameFromDraft(d.cvFilename);
+
+            // Prefill parsed info
+            if (d.parsedName || d.parsedEmail || d.parsedPhone) {
+              setParsedInfo({
+                full_name: d.parsedName || undefined,
+                email: d.parsedEmail || undefined,
+                phone: d.parsedPhone || undefined,
+              });
+            }
+
+            // Prefill saved data
+            if (d.candidateName) setCandidateName(d.candidateName);
+            else if (d.parsedName) setCandidateName(d.parsedName);
+            if (d.candidateEmail) setCandidateEmail(d.candidateEmail);
+            else if (d.parsedEmail) setCandidateEmail(d.parsedEmail);
+            if (d.candidatePhone) setCandidatePhone(d.candidatePhone);
+            else if (d.parsedPhone) setCandidatePhone(d.parsedPhone);
+
+            if (d.preferences) {
+              setPreferences({
+                openTo: d.preferences.openTo || [],
+                noticePeriod: d.preferences.noticePeriod || "",
+                preferredLocations: d.preferences.preferredLocations || [],
+                currentCtc: d.preferences.currentCtc || "",
+                expectedCtc: d.preferences.expectedCtc || "",
+                expectedHourlyRate: d.preferences.expectedHourlyRate || "",
+              });
+            }
+
+            // Advance to saved step
+            const targetStep = (urlStep || d.step) as FlowStep;
+            if (targetStep === "details" || targetStep === "preferences") {
+              setStep(targetStep);
+            } else {
+              setStep("details");
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
+  }, [searchParams]);
 
   const handleAnswerChange = useCallback((id: string, value: string | boolean) => {
     setAnswers((prev) => ({ ...prev, [id]: value }));
+  }, []);
+
+  // Save progress to draft (debounced)
+  const saveDraftProgress = useCallback((
+    currentDraftId: string,
+    data: { candidateName?: string; candidateEmail?: string; candidatePhone?: string; preferences?: CandidatePreferences; step?: string }
+  ) => {
+    fetch(`/api/candidate/draft/${currentDraftId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }).catch(() => {});
   }, []);
 
   const handleUploadContinue = async () => {
@@ -939,24 +1021,30 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
     try {
       const formData = new FormData();
       formData.append("cvFile", cvFile);
+      formData.append("requirementId", requirement.id);
 
-      const res = await fetch("/api/candidate/parse-cv", {
+      const res = await fetch("/api/candidate/draft", {
         method: "POST",
         body: formData,
       });
 
       if (res.ok) {
         const data = await res.json();
-        if (data.success && data.parsed) {
-          const parsed = data.parsed as ParsedInfo;
-          setParsedInfo(parsed);
-          if (parsed.full_name) setCandidateName(parsed.full_name);
-          if (parsed.email) setCandidateEmail(parsed.email);
-          if (parsed.phone) setCandidatePhone(parsed.phone);
+        if (data.success) {
+          setDraftId(data.draftId);
+          updateUrl(data.draftId, "details");
+
+          if (data.parsed) {
+            const parsed = data.parsed as ParsedInfo;
+            setParsedInfo(parsed);
+            if (parsed.full_name) setCandidateName(parsed.full_name);
+            if (parsed.email) setCandidateEmail(parsed.email);
+            if (parsed.phone) setCandidatePhone(parsed.phone);
+          }
         }
       }
     } catch {
-      // Parsing failed silently - user will fill manually
+      // Draft creation failed, continue without it
     }
 
     setParsing(false);
@@ -965,21 +1053,38 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
 
   const handleDetailsContinue = () => {
     setStep("preferences");
+    updateUrl(draftId, "preferences");
+    if (draftId) {
+      saveDraftProgress(draftId, {
+        candidateName: candidateName.trim(),
+        candidateEmail: candidateEmail.trim(),
+        candidatePhone: candidatePhone.trim(),
+        step: "preferences",
+      });
+    }
   };
 
   const handlePreferencesContinue = () => {
+    if (draftId) {
+      saveDraftProgress(draftId, { preferences, step: "submitting" });
+    }
     handleFinalSubmit();
   };
 
   const handleFinalSubmit = async () => {
-    if (!cvFile) return;
+    if (!cvFile && !draftId) return;
     setSubmitting(true);
     setSubmitError("");
     setStep("submitting");
 
     try {
       const formData = new FormData();
-      formData.append("cvFile", cvFile);
+      if (cvFile) {
+        formData.append("cvFile", cvFile);
+      }
+      if (draftId) {
+        formData.append("draftId", draftId);
+      }
       formData.append("requirementId", requirement.id);
       formData.append("answers", JSON.stringify(answers));
       formData.append("candidateName", candidateName.trim());
@@ -1008,6 +1113,19 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
       setSubmitting(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="max-w-lg text-center py-12">
+        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-primary animate-spin">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+        </div>
+        <p className="text-sm text-text-dim">Loading your application...</p>
+      </div>
+    );
+  }
 
   const totalSteps = 3;
   const currentStepIndex =

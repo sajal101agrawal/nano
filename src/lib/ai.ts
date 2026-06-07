@@ -5,7 +5,7 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const MODEL = "claude-3-5-sonnet-20241022";
+const MODEL = "claude-sonnet-4-5";
 
 async function callClaude(
   prompt: string,

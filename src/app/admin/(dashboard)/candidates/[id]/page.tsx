@@ -11,7 +11,7 @@ import {
 } from "@/lib/cn";
 import Link from "next/link";
 import CandidateActions from "./CandidateActions";
-import CVDownloadButton from "./CVDownloadButton";
+import CVViewer from "./CVViewer";
 import type {
   Candidate,
   CandidateProfile,
@@ -437,14 +437,14 @@ export default async function CandidateDetailPage({
             )}
           </section>
 
-          {/* CV download */}
+          {/* CV */}
           {hasCv && (
             <section className="bg-bg-secondary border border-border rounded-xl p-5">
               <h3 className="text-xs font-semibold text-text-dim uppercase tracking-wide mb-3">
                 CV
               </h3>
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-9 h-9 rounded-lg bg-bg-hover flex items-center justify-center">
+                <div className="w-9 h-9 rounded-lg bg-bg-hover flex items-center justify-center shrink-0">
                   <svg className="w-4 h-4 text-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
@@ -458,9 +458,11 @@ export default async function CandidateDetailPage({
                   </p>
                 </div>
               </div>
-              <CVDownloadButton
+              <CVViewer
                 candidateId={candidate.id}
                 filename={profile?.raw_cv_filename}
+                parseStatus={profile?.parse_status}
+                parseError={profile?.parse_error}
               />
             </section>
           )}

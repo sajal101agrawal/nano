@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Menu,
   X,
+  FileX2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { AdminSession } from "@/types";
@@ -27,6 +28,7 @@ const navGroups = [
       { label: "Dashboard", href: "/admin", icon: LayoutDashboard, exact: true },
       { label: "Requirements", href: "/admin/requirements", icon: Briefcase },
       { label: "Candidates", href: "/admin/candidates", icon: Users },
+      { label: "Incomplete", href: "/admin/drafts", icon: FileX2 },
     ],
   },
   {

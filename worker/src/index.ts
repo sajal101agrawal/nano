@@ -4,6 +4,7 @@ import { cvParseProcessor } from "./processors/cvParse";
 import { emailProcessor } from "./processors/email";
 import { matchProcessor } from "./processors/match";
 import { availabilityProcessor } from "./processors/availability";
+import { draftReminderProcessor } from "./processors/draftReminder";
 import { startScheduler } from "./scheduler";
 
 const connection = {
@@ -41,11 +42,18 @@ const availabilityWorker = new Worker(
   workerConfig
 );
 
+const draftReminderWorker = new Worker(
+  "draft-reminder",
+  draftReminderProcessor,
+  { ...workerConfig, concurrency: 1 }
+);
+
 for (const [name, worker] of [
   ["cv-parse", cvWorker],
   ["email", emailWorker],
   ["match", matchWorker],
   ["availability", availabilityWorker],
+  ["draft-reminder", draftReminderWorker],
 ] as const) {
   worker.on("completed", (job) => {
     console.log(`[worker:${name}] Job ${job.id} completed`);
@@ -74,6 +82,7 @@ async function shutdown() {
     emailWorker.close(),
     matchWorker.close(),
     availabilityWorker.close(),
+    draftReminderWorker.close(),
   ]);
   console.log("[worker] All workers stopped.");
   process.exit(0);

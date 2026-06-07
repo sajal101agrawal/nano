@@ -45,8 +45,35 @@ export async function POST(req: NextRequest) {
   const candidateEmailRaw = (formData.get("candidateEmail") as string | null)?.trim() ?? "";
   const candidatePhoneRaw = (formData.get("candidatePhone") as string | null)?.trim() ?? "";
   const preferencesRaw = (formData.get("preferences") as string | null) ?? "{}";
+  const draftId = (formData.get("draftId") as string | null)?.trim() ?? "";
 
-  if (!cvFile || cvFile.size === 0) {
+  // If draftId provided, load CV info from draft instead of requiring file upload
+  let draftCvUrl: string | null = null;
+  let draftCvKey: string | null = null;
+  let draftCvFilename: string | null = null;
+  let draftCvSize: number | null = null;
+  let draftCvMime: string | null = null;
+
+  if (draftId) {
+    const draft = await queryOne<{
+      id: string; requirement_id: string; cv_url: string; cv_key: string;
+      cv_filename: string; cv_size_bytes: number; cv_mime_type: string; status: string;
+    }>(
+      "SELECT id, requirement_id, cv_url, cv_key, cv_filename, cv_size_bytes, cv_mime_type, status FROM draft_applications WHERE id = $1",
+      [draftId]
+    );
+    if (draft && draft.status === "draft") {
+      draftCvUrl = draft.cv_url;
+      draftCvKey = draft.cv_key;
+      draftCvFilename = draft.cv_filename;
+      draftCvSize = draft.cv_size_bytes;
+      draftCvMime = draft.cv_mime_type;
+    }
+  }
+
+  const hasCvFromDraft = !!draftCvUrl;
+
+  if (!hasCvFromDraft && (!cvFile || cvFile.size === 0)) {
     return NextResponse.json(
       { success: false, error: "CV file is required" },
       { status: 400 }
@@ -67,18 +94,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!ALLOWED_MIME_TYPES.includes(cvFile.type)) {
-    return NextResponse.json(
-      { success: false, error: "Only PDF and DOCX files are allowed" },
-      { status: 400 }
-    );
-  }
+  if (!hasCvFromDraft) {
+    if (!ALLOWED_MIME_TYPES.includes(cvFile!.type)) {
+      return NextResponse.json(
+        { success: false, error: "Only PDF and DOCX files are allowed" },
+        { status: 400 }
+      );
+    }
 
-  if (cvFile.size > MAX_SIZE) {
-    return NextResponse.json(
-      { success: false, error: "File too large. Maximum size is 10 MB" },
-      { status: 400 }
-    );
+    if (cvFile!.size > MAX_SIZE) {
+      return NextResponse.json(
+        { success: false, error: "File too large. Maximum size is 10 MB" },
+        { status: 400 }
+      );
+    }
   }
 
   let answers: Record<string, unknown> = {};
@@ -138,12 +167,27 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const cvBuffer = Buffer.from(await cvFile.arrayBuffer());
-    const { url: cvUrl, key: cvKey } = await uploadCV(
-      cvBuffer,
-      cvFile.name,
-      cvFile.type
-    );
+    let cvUrl: string;
+    let cvKey: string;
+    let cvFilename: string;
+    let cvSize: number;
+    let cvMimeType: string;
+
+    if (hasCvFromDraft) {
+      cvUrl = draftCvUrl!;
+      cvKey = draftCvKey!;
+      cvFilename = draftCvFilename || "resume.pdf";
+      cvSize = draftCvSize || 0;
+      cvMimeType = draftCvMime || "application/pdf";
+    } else {
+      const cvBuffer = Buffer.from(await cvFile!.arrayBuffer());
+      const uploaded = await uploadCV(cvBuffer, cvFile!.name, cvFile!.type);
+      cvUrl = uploaded.url;
+      cvKey = uploaded.key;
+      cvFilename = cvFile!.name;
+      cvSize = cvFile!.size;
+      cvMimeType = cvFile!.type;
+    }
 
     let applicationId = "";
     let candidateId = "";
@@ -249,7 +293,7 @@ export async function POST(req: NextRequest) {
            (id, candidate_id, raw_cv_url, raw_cv_filename, raw_cv_size_bytes,
             parse_status, version, is_current, created_at)
          VALUES ($1, $2, $3, $4, $5, 'pending', $6, TRUE, NOW())`,
-        [profileId, candidateId, cvUrl, cvFile.name, cvFile.size, nextVersion]
+        [profileId, candidateId, cvUrl, cvFilename, cvSize, nextVersion]
       );
 
       applicationId = uuidv4();
@@ -295,8 +339,16 @@ export async function POST(req: NextRequest) {
       applicationId,
       cvUrl,
       cvKey,
-      mimeType: cvFile.type,
+      mimeType: cvMimeType,
     });
+
+    // Mark draft as completed if applicable
+    if (draftId) {
+      query(
+        "UPDATE draft_applications SET status = 'completed', completed_at = NOW() WHERE id = $1",
+        [draftId]
+      ).catch(() => {});
+    }
 
     createNotification("new_application", `New application: ${requirement.title}`, {
       body: candidateName

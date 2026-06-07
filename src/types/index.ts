@@ -66,23 +66,33 @@ export interface ParsedCV {
   phone?: string;
   linkedin?: string;
   github?: string;
+  portfolio?: string;
+  location?: string;
   current_title?: string;
   current_company?: string;
   total_experience_years?: number;
+  headline?: string;
   summary?: string;
+  domain?: string;
+  seniority?: "intern" | "junior" | "mid" | "senior" | "lead" | "principal" | "executive";
   roles: Role[];
   education: Education[];
   skills: Skill[];
+  certifications?: Certification[];
+  languages?: SpokenLanguage[];
   raw_text_confidence?: number;
 }
 
 export interface Role {
   title: string;
   company: string;
+  location?: string;
   start_date?: string;
   end_date?: string;
   is_current?: boolean;
+  duration_months?: number;
   summary?: string;
+  achievements?: string[];
 }
 
 export interface Education {
@@ -90,12 +100,25 @@ export interface Education {
   degree?: string;
   field?: string;
   graduation_year?: string;
+  grade?: string;
 }
 
 export interface Skill {
   skill: string;
   years?: number;
   proficiency?: "beginner" | "intermediate" | "advanced" | "expert";
+  category?: "technical" | "framework" | "tool" | "language" | "soft" | "domain";
+}
+
+export interface Certification {
+  name: string;
+  issuer?: string;
+  year?: string;
+}
+
+export interface SpokenLanguage {
+  language: string;
+  proficiency?: "native" | "fluent" | "professional" | "conversational" | "basic";
 }
 
 export interface CandidateSkill {

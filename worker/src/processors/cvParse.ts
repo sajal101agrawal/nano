@@ -51,11 +51,33 @@ async function extractText(
   return { text: "", confidence: 0 };
 }
 
-async function extractCVStructured(rawText: string) {
+async function callClaude(prompt: string, maxTokens = 4096): Promise<string> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const prompt = `Extract structured information from this CV/resume. Return ONLY valid JSON, no explanation.
+  const msg = await client.messages.create({
+    model: "claude-sonnet-4-5",
+    max_tokens: maxTokens,
+    messages: [{ role: "user", content: prompt }],
+  });
+  const block = msg.content[0] as { type: string; text: string };
+  if (block.type !== "text") throw new Error("Unexpected Claude response type");
+  return block.text;
+}
+
+function extractJSON(text: string): string {
+  const fenced = text.match(/```(?:json)?\n?([\s\S]*?)\n?```/);
+  if (fenced) return fenced[1].trim();
+  const s = text.indexOf("{");
+  const e = text.lastIndexOf("}");
+  if (s !== -1 && e !== -1) return text.slice(s, e + 1);
+  return text.trim();
+}
+
+async function parseCVWithAI(rawText: string, confidence: number) {
+  const prompt = `You are an expert CV parser for a recruitment agency. Extract all information from this CV/resume with high accuracy.
+
+Return ONLY valid JSON — no markdown, no explanation, just the JSON object.
 
 Schema:
 {
@@ -64,52 +86,102 @@ Schema:
   "phone": string | null,
   "linkedin": string | null,
   "github": string | null,
+  "portfolio": string | null,
+  "location": string | null,
   "current_title": string | null,
   "current_company": string | null,
   "total_experience_years": number | null,
-  "summary": string | null,
-  "roles": [{ "title": string, "company": string, "start_date": string | null, "end_date": string | null, "is_current": boolean, "summary": string | null }],
-  "education": [{ "institution": string, "degree": string | null, "field": string | null, "graduation_year": string | null }],
-  "skills": [{ "skill": string, "years": number | null, "proficiency": "beginner" | "intermediate" | "advanced" | "expert" | null }],
+  "headline": string | null,
+  "domain": string | null,
+  "seniority": "intern" | "junior" | "mid" | "senior" | "lead" | "principal" | "executive" | null,
+  "roles": [
+    {
+      "title": string,
+      "company": string,
+      "location": string | null,
+      "start_date": string | null,
+      "end_date": string | null,
+      "is_current": boolean,
+      "duration_months": number | null,
+      "summary": string | null,
+      "achievements": string[] | null
+    }
+  ],
+  "education": [
+    {
+      "institution": string,
+      "degree": string | null,
+      "field": string | null,
+      "graduation_year": string | null,
+      "grade": string | null
+    }
+  ],
+  "skills": [
+    {
+      "skill": string,
+      "years": number | null,
+      "proficiency": "beginner" | "intermediate" | "advanced" | "expert" | null,
+      "category": "technical" | "framework" | "tool" | "language" | "soft" | "domain" | null
+    }
+  ],
+  "certifications": [
+    { "name": string, "issuer": string | null, "year": string | null }
+  ],
+  "languages": [
+    { "language": string, "proficiency": "native" | "fluent" | "professional" | "conversational" | "basic" | null }
+  ],
   "raw_text_confidence": number
 }
 
-CV Text:
-${rawText.slice(0, 12000)}`;
+Rules:
+- "headline" = a single punchy line summarizing the candidate (e.g. "Senior Full-Stack Engineer with 8 years in fintech")
+- "domain" = primary domain/specialization (e.g. "Full-Stack Web Development", "Data Science", "DevOps")
+- "seniority" = infer from title and experience years
+- "total_experience_years" = calculate from role dates if not explicitly stated; sum non-overlapping durations
+- "duration_months" = calculate from start_date/end_date if available
+- "achievements" = specific measurable accomplishments from that role (e.g. "Reduced API latency by 40%")
+- Normalize skill names to canonical forms: "JS" → "JavaScript", "TS" → "TypeScript", "k8s" → "Kubernetes"
+- Infer proficiency from years: <1yr=beginner, 1-2yr=intermediate, 2-5yr=advanced, 5+yr=expert
+- "raw_text_confidence": ${confidence} (already computed, use this value)
+- Dates: use "YYYY-MM" format where possible, or the original text if not parseable
 
-  let lastErr: unknown;
-  for (let i = 0; i < 3; i++) {
-    try {
-      const msg = await client.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 2048,
-        messages: [{ role: "user", content: prompt }],
-      });
-      const text = (msg.content[0] as { type: "text"; text: string }).text;
-      const jsonMatch = text.match(/```(?:json)?\n?([\s\S]*?)\n?```/) ||
-        [null, text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)];
-      return JSON.parse(jsonMatch[1] || "{}");
-    } catch (err) {
-      lastErr = err;
-      await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
-    }
+CV Text:
+${rawText.slice(0, 14000)}`;
+
+  const response = await callClaude(prompt, 4096);
+  const jsonStr = extractJSON(response);
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    throw new Error(`Claude returned invalid JSON: ${jsonStr.slice(0, 300)}`);
   }
-  throw lastErr;
 }
 
-async function generateCandidateSummary(parsedCV: Record<string, unknown>): Promise<string> {
-  const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+async function generateEnhancedSummary(parsedCV: Record<string, unknown>): Promise<string> {
+  const roles = (parsedCV.roles as Array<{ title: string; company: string; summary?: string; achievements?: string[] }> || [])
+    .slice(0, 3)
+    .map(r => `${r.title} at ${r.company}${r.achievements?.length ? `: ${r.achievements.slice(0,2).join("; ")}` : ""}`)
+    .join(". ");
 
-  const msg = await client.messages.create({
-    model: "claude-3-5-sonnet-20241022",
-    max_tokens: 256,
-    messages: [{
-      role: "user",
-      content: `Write a 2-3 sentence professional summary of this candidate for a recruiter. Be factual and concise.\n\n${JSON.stringify(parsedCV).slice(0, 3000)}\n\nReturn only the summary.`,
-    }],
-  });
-  return ((msg.content[0] as { type: "text"; text: string }).text || "").trim();
+  const skills = (parsedCV.skills as Array<{ skill: string }> || [])
+    .slice(0, 10)
+    .map(s => s.skill)
+    .join(", ");
+
+  const prompt = `Write a 3-4 sentence professional recruiter summary for this candidate. Be specific and factual — mention actual skills, companies, and achievements. Write in third person. Do not use generic phrases like "results-driven" or "passionate".
+
+Key facts:
+- Name: ${parsedCV.full_name || "Unknown"}
+- Headline: ${parsedCV.headline || parsedCV.current_title || "N/A"}
+- Experience: ${parsedCV.total_experience_years || "?"} years
+- Domain: ${parsedCV.domain || "N/A"}
+- Seniority: ${parsedCV.seniority || "N/A"}
+- Recent roles: ${roles || "N/A"}
+- Top skills: ${skills || "N/A"}
+
+Return only the summary text.`;
+
+  return (await callClaude(prompt, 512)).trim();
 }
 
 async function generateEmbedding(text: string): Promise<number[]> {
@@ -127,29 +199,47 @@ async function generateEmbedding(text: string): Promise<number[]> {
   });
 
   if (!response.ok) {
-    throw new Error(`Embeddings API error: ${response.status}`);
+    throw new Error(`Embeddings API error: ${response.status} ${await response.text()}`);
   }
 
   const data = (await response.json()) as { data: Array<{ embedding: number[] }> };
   return data.data[0].embedding;
 }
 
-export async function cvParseProcessor(job: Job): Promise<void> {
-  const { profileId, candidateId, applicationId, cvUrl, cvKey, mimeType } = job.data;
+async function notifyAdmins(title: string, body: string, entityId: string) {
+  try {
+    const adminUsers = await dbQuery<{ id: string }>(
+      "SELECT id FROM users WHERE role IN ('admin', 'recruiter')"
+    );
+    for (const user of adminUsers) {
+      await dbQuery(
+        `INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id)
+         VALUES ($1, $2, 'parse_failed', $3, $4, 'candidate_profile', $5)`,
+        [uuidv4(), user.id, title, body, entityId]
+      );
+    }
+  } catch (err) {
+    console.error("[cv-parse] Failed to send admin notification:", err);
+  }
+}
 
-  console.log(`[cv-parse] Processing profile ${profileId}`);
+export async function cvParseProcessor(job: Job): Promise<void> {
+  const { profileId, candidateId, applicationId, cvKey, mimeType } = job.data;
+  const isLastAttempt = job.attemptsMade >= (job.opts?.attempts ?? 3) - 1;
+
+  console.log(`[cv-parse] Processing profile ${profileId} (attempt ${job.attemptsMade + 1})`);
 
   await dbQuery(
     "UPDATE candidate_profiles SET parse_status = 'processing' WHERE id = $1",
     [profileId]
   );
   await dbQuery(
-    "UPDATE applications SET status = 'parsing' WHERE id = $1",
+    "UPDATE applications SET status = 'parsing', updated_at = NOW() WHERE id = $1",
     [applicationId]
   );
 
   try {
-    // Step 1: Download CV
+    // Step 1: Download CV from S3
     const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
     const s3 = new S3Client({
       region: process.env.S3_REGION || "us-east-1",
@@ -162,8 +252,7 @@ export async function cvParseProcessor(job: Job): Promise<void> {
     });
 
     const bucket = process.env.S3_BUCKET_NAME || "nano-cvs";
-    const getCommand = new GetObjectCommand({ Bucket: bucket, Key: cvKey });
-    const s3Response = await s3.send(getCommand);
+    const s3Response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: cvKey }));
 
     const chunks: Buffer[] = [];
     for await (const chunk of s3Response.Body as AsyncIterable<Buffer>) {
@@ -177,55 +266,63 @@ export async function cvParseProcessor(job: Job): Promise<void> {
     if (rawText.length < 50) {
       await dbQuery(
         `UPDATE candidate_profiles SET parse_status = 'review_required', parse_error = $2 WHERE id = $1`,
-        [profileId, "Could not extract sufficient text from CV"]
+        [profileId, "Could not extract sufficient text from CV — file may be image-based or corrupted"]
       );
       await dbQuery(
-        "UPDATE applications SET status = 'parse_failed' WHERE id = $1",
+        "UPDATE applications SET status = 'parse_failed', updated_at = NOW() WHERE id = $1",
         [applicationId]
       );
-
-      const notifyClient2 = await pool.connect();
-      try {
-        const adminUsers = await notifyClient2.query("SELECT id FROM users WHERE role IN ('admin', 'recruiter')");
-        for (const user of adminUsers.rows) {
-          await notifyClient2.query(
-            `INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id)
-             VALUES ($1, $2, 'parse_failed', 'CV parse requires review', $3, 'candidate_profile', $4)`,
-            [uuidv4(), user.id, `Profile ${profileId}: CV text extraction failed`, profileId]
-          );
-        }
-      } finally {
-        notifyClient2.release();
-      }
+      await notifyAdmins(
+        "CV requires manual review",
+        `Profile ${profileId}: text extraction yielded < 50 characters`,
+        profileId
+      );
       return;
     }
 
-    // Step 3: Structured extraction with Claude
-    const parsedCV = await extractCVStructured(rawText);
-    parsedCV.raw_text_confidence = confidence;
+    // Step 3: AI-powered structured extraction
+    const parsedCV = await parseCVWithAI(rawText, confidence);
 
-    // Step 4: Summary
-    const summary = await generateCandidateSummary(parsedCV);
+    // Step 4: Calculate total_experience_years from roles if AI missed it
+    if (!parsedCV.total_experience_years && parsedCV.roles?.length > 0) {
+      const now = new Date();
+      let totalMonths = 0;
+      for (const role of parsedCV.roles as Array<{ start_date?: string; end_date?: string; is_current?: boolean; duration_months?: number }>) {
+        if (role.duration_months) {
+          totalMonths += role.duration_months;
+        } else if (role.start_date) {
+          const start = new Date(role.start_date + (role.start_date.length === 7 ? "-01" : ""));
+          const end = role.is_current || !role.end_date
+            ? now
+            : new Date(role.end_date + (role.end_date.length === 7 ? "-01" : ""));
+          if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+            totalMonths += Math.max(0, (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.44));
+          }
+        }
+      }
+      if (totalMonths > 0) {
+        parsedCV.total_experience_years = Math.round((totalMonths / 12) * 10) / 10;
+      }
+    }
+
+    // Step 5: AI-enhanced recruiter summary
+    const summary = await generateEnhancedSummary(parsedCV);
     parsedCV.summary = summary;
 
-    // Step 5: Update candidate from parsed data
-    const candidate = await dbQuery<{
-      id: string;
-      primary_email: string;
-      primary_phone: string;
-      full_name: string;
+    // Step 6: Update candidate core fields from parsed data
+    const [cand] = await dbQuery<{
+      id: string; primary_email: string | null; primary_phone: string | null; full_name: string | null;
     }>(
       "SELECT id, primary_email, primary_phone, full_name FROM candidates WHERE id = $1",
       [candidateId]
     );
 
-    const cand = candidate[0];
     if (cand) {
       const updates: string[] = [];
       const params: unknown[] = [];
 
       if (parsedCV.email && !cand.primary_email) {
-        params.push(parsedCV.email.toLowerCase());
+        params.push((parsedCV.email as string).toLowerCase());
         updates.push(`primary_email = $${params.length}`);
       }
       if (parsedCV.phone && !cand.primary_phone) {
@@ -235,6 +332,10 @@ export async function cvParseProcessor(job: Job): Promise<void> {
       if (parsedCV.full_name && !cand.full_name) {
         params.push(parsedCV.full_name);
         updates.push(`full_name = $${params.length}`);
+      }
+      if (parsedCV.headline) {
+        params.push(parsedCV.headline);
+        updates.push(`headline = $${params.length}`);
       }
       if (parsedCV.current_title) {
         params.push(parsedCV.current_title);
@@ -248,6 +349,10 @@ export async function cvParseProcessor(job: Job): Promise<void> {
         params.push(parsedCV.total_experience_years);
         updates.push(`total_experience_years = $${params.length}`);
       }
+      if (parsedCV.location) {
+        params.push(parsedCV.location);
+        updates.push(`location = $${params.length}`);
+      }
 
       if (updates.length > 0) {
         params.push(candidateId);
@@ -258,15 +363,15 @@ export async function cvParseProcessor(job: Job): Promise<void> {
       }
     }
 
-    // Step 6: Update profile with parsed data
+    // Step 7: Save parsed profile
     await dbQuery(
       `UPDATE candidate_profiles SET
-        parsed_json = $1,
-        summary = $2,
-        total_experience_years = $3,
-        current_title = $4,
-        current_company = $5,
-        parse_status = 'completed'
+         parsed_json = $1,
+         summary = $2,
+         total_experience_years = $3,
+         current_title = $4,
+         current_company = $5,
+         parse_status = 'completed'
        WHERE id = $6`,
       [
         JSON.stringify(parsedCV),
@@ -278,76 +383,71 @@ export async function cvParseProcessor(job: Job): Promise<void> {
       ]
     );
 
-    // Step 7: Update candidate skills
-    if (parsedCV.skills?.length > 0) {
+    // Step 8: Upsert candidate skills
+    const skills = (parsedCV.skills || []) as Array<{
+      skill: string; years?: number; proficiency?: string; category?: string;
+    }>;
+    if (skills.length > 0) {
       await dbQuery("DELETE FROM candidate_skills WHERE candidate_id = $1", [candidateId]);
-
-      for (const skill of parsedCV.skills) {
-        if (!skill.skill) continue;
+      for (const skill of skills) {
+        if (!skill.skill?.trim()) continue;
         const normalized = skill.skill.toLowerCase().trim().replace(/[\s.]+/g, "_");
         await dbQuery(
           `INSERT INTO candidate_skills (id, candidate_id, skill, skill_normalized, years, proficiency)
            VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
            ON CONFLICT DO NOTHING`,
-          [candidateId, skill.skill, normalized, skill.years || null, skill.proficiency || null]
+          [candidateId, skill.skill.trim(), normalized, skill.years || null, skill.proficiency || null]
         );
       }
     }
 
-    // Step 8: Generate and store embedding
-    const embeddingText = [
+    // Step 9: Generate and store vector embedding
+    const embeddingParts = [
       summary,
+      parsedCV.headline,
       parsedCV.current_title,
-      parsedCV.skills?.map((s: { skill: string }) => s.skill).join(", "),
-      parsedCV.roles?.slice(0, 3).map((r: { title: string; company: string }) => `${r.title} at ${r.company}`).join(". "),
-    ]
-      .filter(Boolean)
-      .join(". ");
+      parsedCV.domain,
+      skills.slice(0, 20).map(s => s.skill).join(", "),
+      (parsedCV.roles as Array<{ title: string; company: string }> || [])
+        .slice(0, 4)
+        .map(r => `${r.title} at ${r.company}`)
+        .join(". "),
+    ].filter(Boolean).join(". ");
 
-    const embedding = await generateEmbedding(embeddingText);
-    const vectorStr = `[${embedding.join(",")}]`;
-
+    const embedding = await generateEmbedding(embeddingParts);
     await dbQuery(
       "UPDATE candidate_profiles SET embedding = $1 WHERE id = $2",
-      [vectorStr, profileId]
+      [`[${embedding.join(",")}]`, profileId]
     );
 
-    // Step 9: Update application status
+    // Step 10: Mark application as parsed
     await dbQuery(
-      "UPDATE applications SET status = 'parsed' WHERE id = $1",
+      "UPDATE applications SET status = 'parsed', updated_at = NOW() WHERE id = $1",
       [applicationId]
     );
 
     console.log(`[cv-parse] Completed profile ${profileId}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[cv-parse] Error on profile ${profileId}:`, message);
+    console.error(`[cv-parse] Error on profile ${profileId} (attempt ${job.attemptsMade + 1}):`, message);
 
-    await dbQuery(
-      `UPDATE candidate_profiles SET parse_status = 'failed', parse_error = $2 WHERE id = $1`,
-      [profileId, message]
-    );
-    await dbQuery(
-      "UPDATE applications SET status = 'parse_failed' WHERE id = $1",
-      [applicationId]
-    );
-
-    // Notify admin
-    try {
-      const notifyClient = await pool.connect();
-      try {
-        const adminUsers = await notifyClient.query("SELECT id FROM users WHERE role IN ('admin', 'recruiter')");
-        for (const user of adminUsers.rows) {
-          await notifyClient.query(
-            `INSERT INTO notifications (id, user_id, type, title, body, entity_type, entity_id)
-             VALUES ($1, $2, 'parse_failed', 'CV parse failed', $3, 'candidate_profile', $4)`,
-            [uuidv4(), user.id, `Profile ${profileId}: ${message}`, profileId]
-          );
-        }
-      } finally {
-        notifyClient.release();
-      }
-    } catch {}
+    // Only mark as permanently failed on the last attempt so retries
+    // don't leave the profile in 'failed' before all attempts are exhausted.
+    if (isLastAttempt) {
+      await dbQuery(
+        `UPDATE candidate_profiles SET parse_status = 'failed', parse_error = $2 WHERE id = $1`,
+        [profileId, message]
+      );
+      await dbQuery(
+        "UPDATE applications SET status = 'parse_failed', updated_at = NOW() WHERE id = $1",
+        [applicationId]
+      );
+      await notifyAdmins(
+        "CV parse failed",
+        `Profile ${profileId}: ${message.slice(0, 200)}`,
+        profileId
+      );
+    }
 
     throw err;
   }
