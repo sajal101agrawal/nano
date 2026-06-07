@@ -1,22 +1,46 @@
-import Redis from "ioredis";
+import Redis, { RedisOptions } from "ioredis";
 
 declare global {
   var _redisClient: Redis | undefined;
 }
 
-function createRedis(): Redis {
-  const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
+function getRedisConfig(): { url?: string; options: RedisOptions } {
+  const baseOptions: RedisOptions = {
     maxRetriesPerRequest: 3,
-    retryStrategy(times) {
+    retryStrategy(times: number) {
       if (times > 10) return null;
       return Math.min(times * 200, 3000);
     },
-    reconnectOnError(err) {
+    reconnectOnError(err: Error) {
       return err.message.includes("READONLY");
     },
     lazyConnect: false,
     enableOfflineQueue: true,
-  });
+  };
+
+  // Prefer individual Railway variables
+  if (process.env.REDISHOST) {
+    return {
+      options: {
+        ...baseOptions,
+        host: process.env.REDISHOST,
+        port: parseInt(process.env.REDISPORT || "6379"),
+        username: process.env.REDISUSER || undefined,
+        password: process.env.REDISPASSWORD || undefined,
+      },
+    };
+  }
+  
+  // Fall back to REDIS_URL
+  return {
+    url: process.env.REDIS_URL || "redis://localhost:6379",
+    options: baseOptions,
+  };
+}
+
+function createRedis(): Redis {
+  const { url, options } = getRedisConfig();
+  const redis = url ? new Redis(url, options) : new Redis(options);
 
   redis.on("error", (err) => {
     console.error("[redis] Connection error:", err.message);

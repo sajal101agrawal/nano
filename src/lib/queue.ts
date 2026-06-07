@@ -1,11 +1,31 @@
 import { Queue } from "bullmq";
+import type { ConnectionOptions } from "bullmq";
 
-const connection = {
-  host: new URL(process.env.REDIS_URL || "redis://localhost:6379").hostname,
-  port: parseInt(
-    new URL(process.env.REDIS_URL || "redis://localhost:6379").port || "6379"
-  ),
-};
+function getConnection(): ConnectionOptions {
+  // Prefer individual Railway variables
+  if (process.env.REDISHOST) {
+    return {
+      host: process.env.REDISHOST,
+      port: parseInt(process.env.REDISPORT || "6379"),
+      username: process.env.REDISUSER || undefined,
+      password: process.env.REDISPASSWORD || undefined,
+      maxRetriesPerRequest: null,
+    };
+  }
+  
+  // Fall back to REDIS_URL
+  const url = new URL(process.env.REDIS_URL || "redis://localhost:6379");
+  return {
+    host: url.hostname,
+    port: parseInt(url.port || "6379"),
+    username: url.username ? decodeURIComponent(url.username) : undefined,
+    password: url.password ? decodeURIComponent(url.password) : undefined,
+    maxRetriesPerRequest: null,
+    ...(url.protocol === "rediss:" ? { tls: {} } : {}),
+  };
+}
+
+const connection = getConnection();
 
 // Queue definitions
 export const cvParseQueue = new Queue("cv-parse", {
