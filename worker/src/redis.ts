@@ -24,8 +24,8 @@ export function getRedisConnection(): ConnectionOptions {
 
   // Fall back to REDIS_URL
   const raw = process.env.REDIS_URL || "redis://localhost:6379";
-  console.log(`[redis] Using REDIS_URL host=${new URL(raw).hostname}`);
   const url = new URL(raw);
+  console.log(`[redis] Using REDIS_URL host=${url.hostname} hasPassword=${!!url.password} hasUsername=${!!url.username}`);
   const opts: Record<string, unknown> = {
     host: url.hostname,
     port: parseInt(url.port || "6379"),

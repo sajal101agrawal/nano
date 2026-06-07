@@ -70,22 +70,33 @@ async function getCandidatesVectorSearch(
 
   const vectorStr = `[${embedding.join(",")}]`;
 
+  // filterParams for the vector query starts with the embedding at $1
   const filterConditions: string[] = ["c.status != 'deleted'", "cp.is_current = TRUE"];
   const filterParams: unknown[] = [vectorStr];
+
+  // countParams/countConditions mirror the same filters but without the embedding
+  const countConditions: string[] = ["c.status != 'deleted'", "cp.is_current = TRUE"];
+  const countParams: unknown[] = [];
 
   if (availability) {
     filterParams.push(availability);
     filterConditions.push(`c.availability_status = $${filterParams.length}`);
+    countParams.push(availability);
+    countConditions.push(`c.availability_status = $${countParams.length}`);
   }
   if (contract) {
     filterConditions.push("c.open_to_contract = TRUE");
+    countConditions.push("c.open_to_contract = TRUE");
   }
   if (minExp !== null) {
     filterParams.push(minExp);
     filterConditions.push(`COALESCE(cp.total_experience_years, c.total_experience_years) >= $${filterParams.length}`);
+    countParams.push(minExp);
+    countConditions.push(`COALESCE(cp.total_experience_years, c.total_experience_years) >= $${countParams.length}`);
   }
 
   const where = filterConditions.join(" AND ");
+  const countWhere = countConditions.join(" AND ");
 
   const vectorSql = `
     WITH ranked AS (
@@ -111,12 +122,12 @@ async function getCandidatesVectorSearch(
     SELECT COUNT(*) AS count
     FROM candidate_profiles cp
     JOIN candidates c ON c.id = cp.candidate_id
-    WHERE ${where}
+    WHERE ${countWhere}
   `;
 
   const [rows, countRows] = await Promise.all([
     query<CandidateRow & { vector_score: number }>(vectorSql, [...filterParams, limit, offset]),
-    query<{ count: string }>(countSql, filterParams),
+    query<{ count: string }>(countSql, countParams),
   ]);
 
   const total = Math.min(parseInt(countRows[0]?.count || "0"), 200);
