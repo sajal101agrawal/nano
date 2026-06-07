@@ -106,57 +106,76 @@ export async function GET(req: NextRequest) {
 
         const baseParamCount = 2 + additionalParams.length;
         
-        // Build word-based ILIKE conditions for each search word
-        const wordMatchConditions = searchWords.map((_, i) => 
-          `cp.summary ILIKE '%' || $${baseParamCount + 1 + i} || '%' OR cp.parsed_json::text ILIKE '%' || $${baseParamCount + 1 + i} || '%'`
-        ).join(' OR ');
+        // Build conditions for skill and name matching
+        const skillMatchConditions = searchWords.length > 0
+          ? searchWords.map((_, i) =>
+              `cs.skill ILIKE '%' || $${baseParamCount + 1 + i} || '%'`
+            ).join(' OR ')
+          : null;
         
-        const skillMatchConditions = searchWords.map((_, i) =>
-          `cs.skill ILIKE '%' || $${baseParamCount + 1 + i} || '%'`
-        ).join(' OR ');
-        
-        // Also check candidate name
-        const nameMatchConditions = searchWords.map((_, i) =>
-          `c.full_name ILIKE '%' || $${baseParamCount + 1 + i} || '%'`
-        ).join(' OR ');
+        const nameMatchConditions = searchWords.length > 0
+          ? searchWords.map((_, i) =>
+              `c.full_name ILIKE '%' || $${baseParamCount + 1 + i} || '%'`
+            ).join(' OR ')
+          : null;
 
         const allParams = [...vecParams, ...additionalParams, ...searchWords];
         const vecWhere = vecConditions.join(" AND ");
 
-        // Hybrid search: ONLY include candidates that have a text/skill/name match
+        // Strict hybrid search - no partial word matching
         const hybridSql = `
           WITH scored AS (
             SELECT
               c.id AS candidate_id,
               1 - (cp.embedding <=> $1::vector) AS vector_score,
               CASE 
-                WHEN ${nameMatchConditions ? `(${nameMatchConditions})` : 'FALSE'} THEN 0.5
-                WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.4
-                WHEN ${wordMatchConditions ? `(${wordMatchConditions})` : 'FALSE'} THEN 0.25
+                WHEN ${nameMatchConditions ? `(${nameMatchConditions})` : 'FALSE'} THEN 1.0
                 ELSE 0
-              END AS text_bonus,
+              END AS name_match,
+              CASE 
+                WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.5
+                ELSE 0
+              END AS text_match,
               CASE
                 WHEN EXISTS (
                   SELECT 1 FROM candidate_skills cs 
                   WHERE cs.candidate_id = c.id 
                   AND (${skillMatchConditions ? `(${skillMatchConditions})` : 'FALSE'})
-                ) THEN 0.25
+                ) THEN 0.3
                 ELSE 0
-              END AS skill_bonus
+              END AS skill_match
             FROM candidate_profiles cp
             JOIN candidates c ON c.id = cp.candidate_id
             WHERE ${vecWhere}
           ),
-          ranked AS (
+          with_combined AS (
             SELECT 
               candidate_id,
               vector_score,
-              text_bonus,
-              skill_bonus,
-              (vector_score + text_bonus + skill_bonus) AS combined_score
+              name_match,
+              text_match,
+              skill_match,
+              CASE
+                WHEN name_match > 0 THEN name_match + vector_score
+                WHEN text_match > 0 OR skill_match > 0 THEN text_match + skill_match + vector_score
+                ELSE vector_score
+              END AS combined_score,
+              (name_match > 0 OR text_match > 0 OR skill_match > 0) AS has_text_match
             FROM scored
-            WHERE text_bonus > 0 OR skill_bonus > 0
-            ORDER BY combined_score DESC
+          ),
+          max_vector AS (
+            SELECT MAX(vector_score) AS max_vs FROM with_combined
+          ),
+          ranked AS (
+            SELECT 
+              wc.candidate_id,
+              wc.vector_score,
+              wc.combined_score,
+              wc.has_text_match
+            FROM with_combined wc, max_vector mv
+            WHERE wc.has_text_match 
+               OR (wc.vector_score >= mv.max_vs * 0.9 AND wc.vector_score >= 0.25)
+            ORDER BY wc.combined_score DESC
             LIMIT 200
           )
           SELECT ${CANDIDATE_COLS}, r.vector_score, r.combined_score
@@ -173,26 +192,39 @@ export async function GET(req: NextRequest) {
               c.id AS candidate_id,
               1 - (cp.embedding <=> $1::vector) AS vector_score,
               CASE 
-                WHEN ${nameMatchConditions ? `(${nameMatchConditions})` : 'FALSE'} THEN 0.5
-                WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.4
-                WHEN ${wordMatchConditions ? `(${wordMatchConditions})` : 'FALSE'} THEN 0.25
+                WHEN ${nameMatchConditions ? `(${nameMatchConditions})` : 'FALSE'} THEN 1.0
                 ELSE 0
-              END AS text_bonus,
+              END AS name_match,
+              CASE 
+                WHEN $2 != '' AND to_tsvector('english', COALESCE(cp.summary, '') || ' ' || COALESCE(cp.parsed_json::text, '')) @@ to_tsquery('english', $2) THEN 0.5
+                ELSE 0
+              END AS text_match,
               CASE
                 WHEN EXISTS (
                   SELECT 1 FROM candidate_skills cs 
                   WHERE cs.candidate_id = c.id 
                   AND (${skillMatchConditions ? `(${skillMatchConditions})` : 'FALSE'})
-                ) THEN 0.25
+                ) THEN 0.3
                 ELSE 0
-              END AS skill_bonus
+              END AS skill_match
             FROM candidate_profiles cp
             JOIN candidates c ON c.id = cp.candidate_id
             WHERE ${vecWhere}
+          ),
+          with_combined AS (
+            SELECT 
+              candidate_id,
+              vector_score,
+              (name_match > 0 OR text_match > 0 OR skill_match > 0) AS has_text_match
+            FROM scored
+          ),
+          max_vector AS (
+            SELECT MAX(vector_score) AS max_vs FROM with_combined
           )
           SELECT COUNT(*) AS count
-          FROM scored
-          WHERE text_bonus > 0 OR skill_bonus > 0
+          FROM with_combined wc, max_vector mv
+          WHERE wc.has_text_match 
+             OR (wc.vector_score >= mv.max_vs * 0.9 AND wc.vector_score >= 0.25)
         `;
 
         const [rows, countRows] = await Promise.all([
