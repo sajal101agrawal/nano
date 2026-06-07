@@ -1,12 +1,8 @@
 import "dotenv/config";
 import { Queue } from "bullmq";
+import { getRedisConnection } from "./redis";
 
-const connection = {
-  host: new URL(process.env.REDIS_URL || "redis://localhost:6379").hostname,
-  port: parseInt(
-    new URL(process.env.REDIS_URL || "redis://localhost:6379").port || "6379"
-  ),
-};
+const connection = getRedisConnection();
 
 const availabilityQueue = new Queue("availability", { connection });
 const draftReminderQueue = new Queue("draft-reminder", { connection });

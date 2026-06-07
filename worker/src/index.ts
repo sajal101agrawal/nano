@@ -6,13 +6,10 @@ import { matchProcessor } from "./processors/match";
 import { availabilityProcessor } from "./processors/availability";
 import { draftReminderProcessor } from "./processors/draftReminder";
 import { startScheduler } from "./scheduler";
+import { getRedisConnection } from "./redis";
 
-const connection = {
-  host: new URL(process.env.REDIS_URL || "redis://localhost:6379").hostname,
-  port: parseInt(
-    new URL(process.env.REDIS_URL || "redis://localhost:6379").port || "6379"
-  ),
-};
+const connection = getRedisConnection();
+console.log(`[worker] Connecting to Redis at ${new URL(process.env.REDIS_URL || "redis://localhost:6379").hostname}`);
 
 const workerConfig = {
   connection,
