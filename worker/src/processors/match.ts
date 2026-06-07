@@ -67,14 +67,17 @@ export async function matchProcessor(job: Job): Promise<void> {
   if (!req.embedding) {
     const embText = `${req.jd_raw}`.slice(0, 4000);
     reqEmbedding = await generateEmbedding(embText);
-    const vectorStr = `[${reqEmbedding.join(",")}]`;
     await dbQuery(
       "UPDATE requirements SET embedding = $1 WHERE id = $2",
-      [vectorStr, requirementId]
+      [`[${reqEmbedding.join(",")}]`, requirementId]
     );
   } else {
-    reqEmbedding = JSON.parse(req.embedding.replace(/[\[\]]/g, "").split(",").map(Number).toString()) ||
-      Array.from({ length: 1536 }, () => 0);
+    // embedding is stored as a postgres vector string: "[0.1,0.2,...]"
+    reqEmbedding = req.embedding
+      .replace(/^\[/, "")
+      .replace(/\]$/, "")
+      .split(",")
+      .map(Number);
   }
 
   // Vector similarity search

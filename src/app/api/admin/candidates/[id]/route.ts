@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminSession } from "@/lib/auth";
+import { requireAdminSession, getAdminSession } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
+import { auditLog } from "@/lib/utils";
 import type {
   ApiResponse,
   Candidate,
@@ -97,6 +98,44 @@ export async function GET(
     if (message === "Unauthorized") {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const session = await getAdminSession();
+    if (!session) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const existing = await queryOne<{ id: string }>(
+      "SELECT id FROM candidates WHERE id = $1 AND status != 'deleted'",
+      [id]
+    );
+    if (!existing) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+    }
+
+    // Soft-delete: mark status as deleted, keep data for audit trail
+    await query(
+      "UPDATE candidates SET status = 'deleted', updated_at = NOW() WHERE id = $1",
+      [id]
+    );
+
+    auditLog("candidate.deleted", {
+      session,
+      entityType: "candidate",
+      entityId: id,
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Internal error";
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   cn,
@@ -43,6 +43,7 @@ interface Props {
   applications: ApplicationWithCandidate[];
   matches: MatchWithCandidate[];
   publicUrl: string;
+  initialMatchQueued?: boolean;
 }
 
 type Tab = "shortlist" | "applications" | "details";
@@ -75,6 +76,7 @@ export default function RequirementDetail({
   applications,
   matches,
   publicUrl,
+  initialMatchQueued = false,
 }: Props) {
   const router = useRouter();
   const [requirement, setRequirement] = useState(initialRequirement);
@@ -83,7 +85,32 @@ export default function RequirementDetail({
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [rematching, setRematching] = useState(false);
-  const [rematchDone, setRematchDone] = useState(false);
+  // True whenever a job is waiting/active in the queue (either from initial load or after trigger)
+  const [matchQueued, setMatchQueued] = useState(initialMatchQueued);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll the queue status every 4 s while a job is in-flight, stop once it completes
+  useEffect(() => {
+    if (!matchQueued) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      return;
+    }
+    const check = async () => {
+      try {
+        const res = await fetch(`/api/admin/requirements/${requirement.id}/match`);
+        const json = await res.json() as { success: boolean; data?: { queued: boolean } };
+        if (json.success && json.data) {
+          setMatchQueued(json.data.queued);
+          if (!json.data.queued) {
+            // Job finished — refresh the page to show updated match results
+            router.refresh();
+          }
+        }
+      } catch { /* ignore */ }
+    };
+    pollRef.current = setInterval(check, 4000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [matchQueued, requirement.id, router]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(publicUrl).then(() => {
@@ -120,20 +147,18 @@ export default function RequirementDetail({
   );
 
   const handleRematch = useCallback(async () => {
+    if (matchQueued) return;
     setRematching(true);
-    setRematchDone(false);
     try {
-      await fetch(`/api/admin/requirements/${requirement.id}/match`, {
-        method: "POST",
-      });
-      setRematchDone(true);
-      setTimeout(() => setRematchDone(false), 4000);
-    } catch {
-      // ignore
-    } finally {
+      const res = await fetch(`/api/admin/requirements/${requirement.id}/match`, { method: "POST" });
+      const json = await res.json() as { success: boolean; error?: string };
+      if (json.success) {
+        setMatchQueued(true);
+      }
+    } catch { /* ignore */ } finally {
       setRematching(false);
     }
-  }, [requirement.id]);
+  }, [requirement.id, matchQueued]);
 
   const parsed = requirement.parsed_requirements_json as ParsedRequirements | undefined;
 
@@ -224,25 +249,24 @@ export default function RequirementDetail({
             <span className="text-sm text-text-dim">{applications.length} applications</span>
             <button
               onClick={handleRematch}
-              disabled={rematching}
+              disabled={rematching || matchQueued}
+              title={matchQueued ? "Match job is already running" : undefined}
               className={cn(
-                "px-3 py-1.5 rounded-lg border text-sm font-medium transition-all",
-                rematchDone
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                "px-3 py-1.5 rounded-lg border text-sm font-medium transition-all inline-flex items-center gap-1.5",
+                matchQueued
+                  ? "border-amber-500/30 bg-amber-500/8 text-amber-400 cursor-not-allowed"
                   : "border-border text-text-dim hover:text-text-light hover:bg-bg-hover",
                 rematching && "opacity-60 cursor-not-allowed"
               )}
             >
-              {rematching ? (
-                <span className="flex items-center gap-1.5">
+              {(rematching || matchQueued) ? (
+                <>
                   <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  Queuing...
-                </span>
-              ) : rematchDone ? (
-                "Match queued"
+                  {rematching ? "Queuing..." : "Matching..."}
+                </>
               ) : (
                 "Trigger Re-match"
               )}

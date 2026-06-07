@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminSession } from "@/lib/auth";
+import { requireAdminSession, getAdminSession } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { auditLog } from "@/lib/utils";
 import { extractJDRequirements } from "@/lib/ai";
@@ -149,6 +149,43 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
     console.error("[api/admin/requirements/[id] PATCH]", err);
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const { id } = await params;
+    const session = await getAdminSession();
+    if (!session) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const existing = await queryOne<{ id: string; title: string }>(
+      "SELECT id, title FROM requirements WHERE id = $1",
+      [id]
+    );
+    if (!existing) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+    }
+
+    // Hard delete — cascades to applications, answers, matches via FK
+    await query("DELETE FROM requirements WHERE id = $1", [id]);
+
+    await auditLog("requirement.deleted", {
+      session,
+      entityType: "requirement",
+      entityId: id,
+      metadata: { title: existing.title },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Internal error";
+    console.error("[api/admin/requirements/[id] DELETE]", err);
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

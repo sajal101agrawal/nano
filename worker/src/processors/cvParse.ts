@@ -1,11 +1,41 @@
 import "dotenv/config";
-import { Job } from "bullmq";
+import { Job, Queue } from "bullmq";
 import { Pool } from "pg";
 import { v4 as uuidv4 } from "uuid";
 import pdf from "pdf-parse";
 import mammoth from "mammoth";
 import fetch from "node-fetch";
 
+const matchQueueConn = {
+  host: new URL(process.env.REDIS_URL || "redis://localhost:6379").hostname,
+  port: parseInt(new URL(process.env.REDIS_URL || "redis://localhost:6379").port || "6379"),
+};
+const matchQueue = new Queue("match", {
+  connection: matchQueueConn,
+  defaultJobOptions: { attempts: 2, backoff: { type: "fixed", delay: 5000 } },
+});
+
+async function enqueueMatchForRequirements(candidateId: string) {
+  const openReqs = await dbQuery<{ requirement_id: string }>(
+    `SELECT DISTINCT a.requirement_id
+     FROM applications a
+     JOIN requirements r ON r.id = a.requirement_id
+     WHERE a.candidate_id = $1
+       AND r.status = 'open'`,
+    [candidateId]
+  );
+  for (const { requirement_id } of openReqs) {
+    const jobId = `match-${requirement_id}`;
+    const existing = await matchQueue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState().catch(() => "unknown");
+      if (state === "waiting" || state === "active" || state === "delayed") continue;
+      await existing.remove().catch(() => {});
+    }
+    await matchQueue.add("compute", { requirementId: requirement_id, topN: 50 }, { jobId });
+    console.log(`[cv-parse] Auto-enqueued match for requirement ${requirement_id}`);
+  }
+}
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 5,
@@ -425,6 +455,9 @@ export async function cvParseProcessor(job: Job): Promise<void> {
       "UPDATE applications SET status = 'parsed', updated_at = NOW() WHERE id = $1",
       [applicationId]
     );
+
+    // Step 11: Auto-trigger match for all open requirements this candidate applied to
+    await enqueueMatchForRequirements(candidateId);
 
     console.log(`[cv-parse] Completed profile ${profileId}`);
   } catch (err) {

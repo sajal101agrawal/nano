@@ -12,6 +12,7 @@ import {
 import Link from "next/link";
 import CandidateActions from "./CandidateActions";
 import CVViewer from "./CVViewer";
+import DeleteButton from "@/components/admin/DeleteButton";
 import type {
   Candidate,
   CandidateProfile,
@@ -166,11 +167,21 @@ export default async function CandidateDetailPage({
           </div>
         </div>
 
-        <CandidateActions
-          candidateId={candidate.id}
-          candidateName={displayName}
-          candidateEmail={candidate.primary_email || ""}
-        />
+        <div className="flex items-center gap-2">
+          <CandidateActions
+            candidateId={candidate.id}
+            candidateName={displayName}
+            candidateEmail={candidate.primary_email || ""}
+          />
+          <DeleteButton
+            endpoint={`/api/admin/candidates/${candidate.id}`}
+            entityLabel={displayName}
+            confirmMessage={`Permanently delete ${displayName}? All their CV data, skills, and applications will be removed.`}
+            redirectTo="/admin/candidates"
+            iconSize="md"
+            className="p-2 rounded-lg text-text-muted hover:text-red-400 hover:bg-red-400/8 border border-border transition-colors"
+          />
+        </div>
       </div>
 
       {/* Parse alert */}
@@ -287,6 +298,7 @@ export default async function CandidateDetailPage({
                       <th className="text-left px-4 py-3 text-xs font-medium text-text-dim">Status</th>
                       <th className="text-right px-4 py-3 text-xs font-medium text-text-dim hidden sm:table-cell">Score</th>
                       <th className="text-right px-4 py-3 text-xs font-medium text-text-dim hidden md:table-cell">Applied</th>
+                      <th className="w-10 px-2 py-3" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -319,6 +331,13 @@ export default async function CandidateDetailPage({
                           <span className="text-xs text-text-dim">
                             {formatDate(app.applied_at)}
                           </span>
+                        </td>
+                        <td className="px-2 py-3">
+                          <DeleteButton
+                            endpoint={`/api/admin/applications/${app.id}`}
+                            entityLabel="application"
+                            confirmMessage={`Delete this application for "${app.requirement_title}"? This cannot be undone.`}
+                          />
                         </td>
                       </tr>
                     ))}

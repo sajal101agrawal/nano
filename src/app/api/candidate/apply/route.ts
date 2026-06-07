@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
 
       if (normalizedEmail) {
         const r = await client.query<{ id: string }>(
-          "SELECT id FROM candidates WHERE primary_email = $1 AND status != 'deleted' LIMIT 1",
+          "SELECT id FROM candidates WHERE primary_email = $1 LIMIT 1",
           [normalizedEmail]
         );
         existingId = r.rows[0]?.id ?? null;
@@ -219,6 +219,7 @@ export async function POST(req: NextRequest) {
           `UPDATE candidates
            SET last_active_at = NOW(),
                availability_status = 'available',
+               status = CASE WHEN status = 'deleted' THEN 'active' ELSE status END,
                full_name = CASE WHEN full_name IS NULL AND $2 != '' THEN $2 ELSE full_name END,
                primary_email = COALESCE(primary_email, $3),
                primary_phone = COALESCE(primary_phone, $4),
@@ -248,14 +249,29 @@ export async function POST(req: NextRequest) {
         );
       } else {
         candidateId = uuidv4();
-        await client.query(
+        const upsertResult = await client.query<{ id: string }>(
           `INSERT INTO candidates
              (id, primary_email, primary_phone, full_name, source, status,
               availability_status, last_active_at, open_to_contract, open_to_fulltime,
               notice_period_days, work_mode, expected_rate, expected_rate_currency,
               created_at, updated_at)
            VALUES ($1, $2, $3, $4, 'application', 'active', 'available', NOW(),
-                   $5, $6, $7, $8, $9, 'INR', NOW(), NOW())`,
+                   $5, $6, $7, $8, $9, 'INR', NOW(), NOW())
+           ON CONFLICT (primary_email)
+           DO UPDATE SET
+             last_active_at = NOW(),
+             availability_status = 'available',
+             status = 'active',
+             full_name = CASE WHEN candidates.full_name IS NULL AND $4 != '' THEN $4 ELSE candidates.full_name END,
+             primary_phone = COALESCE(candidates.primary_phone, $3),
+             open_to_contract = EXCLUDED.open_to_contract,
+             open_to_fulltime = EXCLUDED.open_to_fulltime,
+             notice_period_days = EXCLUDED.notice_period_days,
+             work_mode = EXCLUDED.work_mode,
+             expected_rate = EXCLUDED.expected_rate,
+             expected_rate_currency = 'INR',
+             updated_at = NOW()
+           RETURNING id`,
           [
             candidateId,
             normalizedEmail,
@@ -268,6 +284,14 @@ export async function POST(req: NextRequest) {
             preferences.expectedCtc ? String(preferences.expectedCtc) : null,
           ]
         );
+        // If the upsert matched an existing row (conflict), use its id
+        if (upsertResult.rows[0]?.id && upsertResult.rows[0].id !== candidateId) {
+          candidateId = upsertResult.rows[0].id;
+          await client.query(
+            "UPDATE candidate_profiles SET is_current = FALSE WHERE candidate_id = $1",
+            [candidateId]
+          );
+        }
       }
 
       const dupRow = await client.query<{ id: string }>(

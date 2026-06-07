@@ -4,6 +4,7 @@ import { query, queryOne } from "@/lib/db";
 import Link from "next/link";
 import RequirementDetail from "./RequirementDetail";
 import { requirementStatusBadgeClass, formatDate } from "@/lib/cn";
+import { matchQueue } from "@/lib/queue";
 import type { Requirement, RequirementQuestion, Application, Match } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -51,8 +52,7 @@ export default async function RequirementDetailPage({
 
   if (!requirement) notFound();
 
-  const [questions, applications, matches] = await Promise.all([
-    query<RequirementQuestion>(
+  const [questions, applications, matches] = await Promise.all([    query<RequirementQuestion>(
       "SELECT * FROM requirement_questions WHERE requirement_id = $1 ORDER BY sort_order",
       [id]
     ),
@@ -105,6 +105,15 @@ export default async function RequirementDetailPage({
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const publicUrl = `${appUrl}/jobs/${requirement.public_slug}`;
+
+  // Check if a match job is currently queued/active
+  const matchJobId = `match-${id}`;
+  const existingMatchJob = await matchQueue.getJob(matchJobId).catch(() => null);
+  let matchJobQueued = false;
+  if (existingMatchJob) {
+    const state = await existingMatchJob.getState().catch(() => "unknown");
+    matchJobQueued = state === "waiting" || state === "active" || state === "delayed";
+  }
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6 animate-fade-in">
@@ -176,6 +185,7 @@ export default async function RequirementDetailPage({
         applications={applications}
         matches={matches}
         publicUrl={publicUrl}
+        initialMatchQueued={matchJobQueued}
       />
     </div>
   );

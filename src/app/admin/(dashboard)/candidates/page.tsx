@@ -2,6 +2,7 @@ import { query } from "@/lib/db";
 import Link from "next/link";
 import { formatRelativeTime, availabilityBadgeClass, getInitials } from "@/lib/cn";
 import CandidateFilters from "./CandidateFilters";
+import DeleteButton from "@/components/admin/DeleteButton";
 import { Users, ChevronRight } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -137,6 +138,7 @@ export default async function CandidatesPage({ searchParams }: PageProps) {
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wide hidden lg:table-cell">Skills</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wide">Availability</th>
                 <th className="text-right px-5 py-3 text-xs font-medium text-text-muted uppercase tracking-wide hidden md:table-cell">Last active</th>
+                <th className="w-10 px-3 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -199,6 +201,14 @@ export default async function CandidatesPage({ searchParams }: PageProps) {
                           {c.last_active_at ? formatRelativeTime(c.last_active_at) : "—"}
                         </span>
                       </td>
+                      <td className="px-3 py-3.5">
+                        <DeleteButton
+                          endpoint={`/api/admin/candidates/${c.id}`}
+                          entityLabel={name}
+                          confirmMessage={`Delete ${name}? Their CV, skills, and application history will be permanently removed.`}
+                          redirectTo="/admin/candidates"
+                        />
+                      </td>
                     </tr>
                   );
                 })
@@ -218,23 +228,31 @@ export default async function CandidatesPage({ searchParams }: PageProps) {
               const skills = c.raw_skills ? c.raw_skills.split(",").filter(Boolean).slice(0, 3) : [];
               const name = c.full_name || c.primary_email || "Unknown";
               return (
-                <Link key={c.id} href={`/admin/candidates/${c.id}`} className="flex items-center gap-3 px-4 py-3.5 table-row-hover">
-                  <div className="w-9 h-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0 text-primary text-xs font-bold font-display">
-                    {getInitials(name)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-text-light truncate">{name}</p>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className={availabilityBadgeClass(c.availability_status)}>
-                        {c.availability_status}
-                      </span>
-                      {skills.slice(0, 2).map((s) => (
-                        <span key={s} className="badge badge-gray">{s}</span>
-                      ))}
+                <div key={c.id} className="flex items-center gap-2 px-4 py-3.5 table-row-hover">
+                  <Link href={`/admin/candidates/${c.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="w-9 h-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0 text-primary text-xs font-bold font-display">
+                      {getInitials(name)}
                     </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-text-muted shrink-0" />
-                </Link>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-text-light truncate">{name}</p>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className={availabilityBadgeClass(c.availability_status)}>
+                          {c.availability_status}
+                        </span>
+                        {skills.slice(0, 2).map((s) => (
+                          <span key={s} className="badge badge-gray">{s}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-text-muted shrink-0" />
+                  </Link>
+                  <DeleteButton
+                    endpoint={`/api/admin/candidates/${c.id}`}
+                    entityLabel={name}
+                    confirmMessage={`Delete ${name}? Their CV, skills, and application history will be permanently removed.`}
+                    redirectTo="/admin/candidates"
+                  />
+                </div>
               );
             })
           )}
