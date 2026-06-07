@@ -1,5 +1,6 @@
 import { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { query, queryOne } from "@/lib/db";
 import type { Requirement, RequirementQuestion } from "@/types";
 import ApplicationFlow from "./ApplicationFlow";
@@ -57,13 +58,8 @@ export default async function JobDetailPage({ params }: PageProps) {
         <header className="sticky top-0 z-20 border-b border-border bg-bg/80 backdrop-blur-xl">
           <div className="max-w-2xl mx-auto px-5 sm:px-6 h-16 flex items-center">
             <Link href="/jobs" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-                <span className="font-display font-black text-sm text-white leading-none">S</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="font-display font-bold text-text-light text-[15px] leading-tight tracking-tight">Sajal Tech</span>
-                <span className="text-text-muted text-[11px] leading-tight">Careers</span>
-              </div>
+              <Image src="/logo.png" alt="Sajal Tech" width={100} height={34} className="h-7 w-auto" priority />
+              <span className="text-text-muted text-[11px] leading-tight">Careers</span>
             </Link>
           </div>
         </header>
@@ -106,13 +102,8 @@ export default async function JobDetailPage({ params }: PageProps) {
       <header className="sticky top-0 z-20 border-b border-border bg-bg/80 backdrop-blur-xl">
         <div className="max-w-2xl mx-auto px-5 sm:px-6 h-16 flex items-center justify-between">
           <Link href="/jobs" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="font-display font-black text-sm text-white leading-none">S</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="font-display font-bold text-text-light text-[15px] leading-tight tracking-tight">Sajal Tech</span>
-              <span className="text-text-muted text-[11px] leading-tight">Careers</span>
-            </div>
+            <Image src="/logo.png" alt="Sajal Tech" width={100} height={34} className="h-7 w-auto" priority />
+            <span className="text-text-muted text-[11px] leading-tight">Careers</span>
           </Link>
           <Link
             href="/jobs"

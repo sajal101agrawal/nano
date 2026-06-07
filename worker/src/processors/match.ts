@@ -1,7 +1,6 @@
 import "dotenv/config";
 import { Job } from "bullmq";
 import { Pool } from "pg";
-import fetch from "node-fetch";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
 

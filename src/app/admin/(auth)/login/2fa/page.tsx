@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Loader2, ArrowLeft } from "lucide-react";
 
 export default function TwoFactorPage() {
@@ -79,11 +80,7 @@ export default function TwoFactorPage() {
       <div className="w-full max-w-[340px]">
         {/* Logo */}
         <div className="flex items-center gap-2.5 mb-10">
-          <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shadow-sm shadow-primary/30">
-            <span className="font-display font-black text-white text-sm">N</span>
-          </div>
-          <span className="font-display font-bold text-text-light">Nano</span>
-          <span className="text-text-muted text-xs">by Sajal Tech</span>
+          <Image src="/logo.png" alt="Sajal Tech" width={120} height={40} className="h-7 w-auto" priority />
         </div>
 
         <div className="mb-7">

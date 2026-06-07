@@ -1,6 +1,7 @@
 "use client";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
@@ -112,14 +113,12 @@ export function Sidebar({ session, unreadCount = 0 }: SidebarProps) {
           collapsed && !mobile ? "justify-center px-3" : "gap-2.5"
         )}
       >
-        <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0 shadow-sm shadow-primary/30">
-          <span className="font-display font-black text-sm text-white leading-none">N</span>
-        </div>
-        {(!collapsed || mobile) && (
-          <div className="min-w-0">
-            <span className="font-display font-bold text-[15px] text-text-light leading-none">Nano</span>
-            <span className="text-[10px] text-text-muted ml-1.5">by Sajal Tech</span>
-          </div>
+        {collapsed && !mobile ? (
+          <Image src="/logo.png" alt="Sajal Tech" width={28} height={28} className="w-7 h-7 object-contain" />
+        ) : (
+          <>
+            <Image src="/logo.png" alt="Sajal Tech" width={100} height={34} className="h-6 w-auto" />
+          </>
         )}
         {mobile && (
           <button

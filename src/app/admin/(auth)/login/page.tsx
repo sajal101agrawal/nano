@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAdminSession } from "@/lib/auth";
 import { LoginForm } from "./LoginForm";
+import Image from "next/image";
 import { Zap, FileText, Bell, Target } from "lucide-react";
 
 const features = [
@@ -41,12 +42,9 @@ export default async function LoginPage() {
 
         {/* Content */}
         <div className="relative z-10 text-center px-12 max-w-md">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-500 mb-6 animate-float shadow-lg shadow-blue-500/30">
-            <span className="font-display font-black text-3xl text-white leading-none">N</span>
+          <div className="flex justify-center mb-6">
+            <Image src="/logo.png" alt="Sajal Tech" width={160} height={54} className="h-10 w-auto brightness-0 invert" priority />
           </div>
-          <h1 className="font-display text-4xl xl:text-5xl font-bold text-white mb-3 tracking-tight">
-            Nano
-          </h1>
           <p className="text-white/50 text-base mb-10 tracking-wide">
             Talent Platform by Sajal Tech
           </p>
@@ -73,13 +71,7 @@ export default async function LoginPage() {
         <div className="w-full max-w-[360px]">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 mb-10">
-            <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
-              <span className="font-display font-black text-lg text-white">N</span>
-            </div>
-            <div>
-              <span className="font-display font-bold text-text-light text-lg">Nano</span>
-              <span className="text-text-muted text-xs ml-2">by Sajal Tech</span>
-            </div>
+            <Image src="/logo.png" alt="Sajal Tech" width={120} height={40} className="h-7 w-auto" priority />
           </div>
 
           <div className="mb-8">

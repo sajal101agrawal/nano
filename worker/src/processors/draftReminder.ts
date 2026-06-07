@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { Job } from "bullmq";
 import { Pool } from "pg";
+import { Resend } from "resend";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -8,6 +9,9 @@ const pool = new Pool({
 });
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+const TRANSACTIONAL_FROM = `${process.env.EMAIL_FROM_NAME || "Nano"} <${process.env.EMAIL_FROM_TRANSACTIONAL || "noreply@sajaltech.com"}>`;
+const REPLY_TO = process.env.EMAIL_REPLY_TO || "contact@sajaltech.com";
 
 interface DraftReminderJobData {
   type: "check_15m" | "check_6h" | "expire_stale";
@@ -20,7 +24,7 @@ async function sendReminderEmail(
   resumeLink: string,
   variant: "15m" | "6h"
 ) {
-  const { sendEmail } = await import("../../../src/lib/email");
+  const resend = new Resend(process.env.RESEND_API_KEY);
 
   const subject = variant === "15m"
     ? `Complete your application — ${jobTitle}`
@@ -55,13 +59,19 @@ async function sendReminderEmail(
     </div>
   `;
 
-  await sendEmail({
+  const result = await resend.emails.send({
+    from: TRANSACTIONAL_FROM,
     to,
+    reply_to: REPLY_TO,
     subject,
     html,
-    stream: "transactional",
   });
+
+  if (result.error) {
+    throw new Error(`Resend error: ${result.error.message}`);
+  }
 }
+
 
 export async function draftReminderProcessor(job: Job<DraftReminderJobData>): Promise<void> {
   const { type } = job.data;

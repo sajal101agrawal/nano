@@ -4,7 +4,6 @@ import { Pool } from "pg";
 import { v4 as uuidv4 } from "uuid";
 import pdf from "pdf-parse";
 import mammoth from "mammoth";
-import fetch from "node-fetch";
 
 const matchQueueConn = {
   host: new URL(process.env.REDIS_URL || "redis://localhost:6379").hostname,
@@ -399,7 +398,7 @@ export async function cvParseProcessor(job: Job): Promise<void> {
     const parsedCV = await parseCVWithAI(rawText, confidence);
 
     // Step 4: Calculate total_experience_years from roles if AI missed it
-    if (!parsedCV.total_experience_years && parsedCV.roles?.length > 0) {
+    if (!parsedCV.total_experience_years && (parsedCV.roles as unknown[] | undefined)?.length) {
       const now = new Date();
       let totalMonths = 0;
       for (const role of parsedCV.roles as Array<{ start_date?: string; end_date?: string; is_current?: boolean; duration_months?: number }>) {

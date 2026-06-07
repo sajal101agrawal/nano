@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import Link from "next/link";
+import Image from "next/image";
 import { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -44,13 +45,8 @@ export default async function JobsPage() {
       <header className="border-b border-border bg-bg/80 backdrop-blur-xl sticky top-0 z-20">
         <div className="max-w-2xl mx-auto px-5 sm:px-6 h-16 flex items-center justify-between">
           <a href="https://sajaltech.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-sm">
-              <span className="font-display font-black text-sm text-white leading-none">S</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="font-display font-bold text-text-light text-[15px] leading-tight tracking-tight">Sajal Tech</span>
-              <span className="text-text-muted text-[11px] leading-tight">Careers</span>
-            </div>
+            <Image src="/logo.png" alt="Sajal Tech" width={100} height={34} className="h-7 w-auto" priority />
+            <span className="text-text-muted text-[11px] leading-tight">Careers</span>
           </a>
         </div>
       </header>
@@ -145,7 +141,7 @@ export default async function JobsPage() {
       {/* Footer */}
       <footer className="border-t border-border py-6 px-5 sm:px-6">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <span className="text-[11px] text-text-muted">Sajal Tech</span>
+          <Image src="/logo.png" alt="Sajal Tech" width={80} height={27} className="h-5 w-auto opacity-60" />
           <a
             href="https://sajaltech.com"
             target="_blank"
