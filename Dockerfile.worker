@@ -4,7 +4,7 @@ RUN apk add --no-cache libc6-compat python3 make g++
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 FROM base AS builder
 WORKDIR /app
@@ -15,7 +15,7 @@ RUN npx tsc --project tsconfig.worker.json
 
 FROM base AS runner
 WORKDIR /app
-ENV NODE_ENV production
+ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 worker
 COPY --from=deps /app/node_modules ./node_modules

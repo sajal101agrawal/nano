@@ -4,7 +4,7 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat python3 make g++
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 FROM base AS builder
 WORKDIR /app
@@ -14,7 +14,7 @@ RUN npm run build
 
 FROM base AS runner
 WORKDIR /app
-ENV NODE_ENV production
+ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
@@ -25,6 +25,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/migrations ./migrations
 RUN chmod +x /app/scripts/start.sh
 USER nextjs
 EXPOSE 3000
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 CMD ["/app/scripts/start.sh"]
