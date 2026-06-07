@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ["pg", "ioredis", "bullmq", "pdf-parse", "mammoth"],
+  serverExternalPackages: ["pg", "ioredis", "bullmq", "pdf-parse", "mammoth", "pdfkit"],
   images: {
     remotePatterns: [
       {

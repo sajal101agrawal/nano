@@ -84,7 +84,6 @@ async function extractText(
 async function callClaude(prompt: string, maxTokens = 4096): Promise<string> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
   const msg = await client.messages.create({
     model: "claude-sonnet-4-5",
     max_tokens: maxTokens,
@@ -105,113 +104,185 @@ function extractJSON(text: string): string {
 }
 
 async function parseCVWithAI(rawText: string, confidence: number) {
-  const prompt = `You are an expert CV parser for a recruitment agency. Extract all information from this CV/resume with high accuracy.
+  const Anthropic = (await import("@anthropic-ai/sdk")).default;
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-Return ONLY valid JSON — no markdown, no explanation, just the JSON object.
-
-Schema:
-{
-  "full_name": string | null,
-  "email": string | null,
-  "phone": string | null,
-  "linkedin": string | null,
-  "github": string | null,
-  "portfolio": string | null,
-  "location": string | null,
-  "current_title": string | null,
-  "current_company": string | null,
-  "total_experience_years": number | null,
-  "headline": string | null,
-  "domain": string | null,
-  "seniority": "intern" | "junior" | "mid" | "senior" | "lead" | "principal" | "executive" | null,
-  "roles": [
-    {
-      "title": string,
-      "company": string,
-      "location": string | null,
-      "start_date": string | null,
-      "end_date": string | null,
-      "is_current": boolean,
-      "duration_months": number | null,
-      "summary": string | null,
-      "achievements": string[] | null
+  // Use tool_use to guarantee structured JSON — eliminates all parse failures
+  const extractTool = {
+    name: "extract_cv",
+    description: "Extract all structured information from a CV or resume",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        full_name: { type: "string", description: "Candidate's full name as written on CV" },
+        email: { type: "string", description: "Primary email address" },
+        phone: { type: "string", description: "Primary phone number with country code" },
+        linkedin: { type: "string", description: "Full LinkedIn profile URL" },
+        github: { type: "string", description: "Full GitHub profile URL" },
+        portfolio: { type: "string", description: "Personal website or portfolio URL" },
+        location: { type: "string", description: "City, State/Country. E.g. 'Bangalore, India'" },
+        current_title: { type: "string", description: "Most recent job title" },
+        current_company: { type: "string", description: "Most recent employer name" },
+        total_experience_years: {
+          type: "number",
+          description: "Total years of professional experience. Calculate by summing non-overlapping role durations if not stated explicitly. Round to 1 decimal."
+        },
+        headline: {
+          type: "string",
+          description: "Single punchy line for recruiter use. E.g. 'Senior Full-Stack Engineer with 8 years in fintech'"
+        },
+        domain: {
+          type: "string",
+          description: "Primary specialization. E.g. 'Full-Stack Web Development', 'Data Science & ML', 'DevOps & Cloud'"
+        },
+        seniority: {
+          type: "string",
+          enum: ["intern", "junior", "mid", "senior", "lead", "principal", "executive"],
+          description: "Infer from job titles and experience years"
+        },
+        roles: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              company: { type: "string" },
+              location: { type: "string" },
+              start_date: { type: "string", description: "YYYY-MM format preferred, or original text" },
+              end_date: { type: "string", description: "YYYY-MM format preferred, null if current role" },
+              is_current: { type: "boolean" },
+              duration_months: { type: "number", description: "Calculated duration in months" },
+              summary: { type: "string", description: "1-2 sentence role description" },
+              achievements: {
+                type: "array",
+                items: { type: "string" },
+                description: "Specific, measurable achievements. E.g. 'Reduced API latency by 40% through caching'"
+              }
+            },
+            required: ["title", "company", "is_current"]
+          }
+        },
+        education: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              institution: { type: "string" },
+              degree: { type: "string", description: "E.g. 'B.Tech', 'M.S.', 'MBA'" },
+              field: { type: "string", description: "E.g. 'Computer Science', 'Finance'" },
+              graduation_year: { type: "string" },
+              grade: { type: "string", description: "GPA, percentage, or grade if mentioned" }
+            },
+            required: ["institution"]
+          }
+        },
+        skills: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              skill: { type: "string", description: "Canonical skill name. Normalize: 'JS'→'JavaScript', 'k8s'→'Kubernetes', 'ML'→'Machine Learning'" },
+              years: { type: "number", description: "Estimated years of experience with this skill" },
+              proficiency: {
+                type: "string",
+                enum: ["beginner", "intermediate", "advanced", "expert"],
+                description: "Infer: <1yr=beginner, 1-2yr=intermediate, 2-5yr=advanced, 5+yr=expert"
+              },
+              category: {
+                type: "string",
+                enum: ["technical", "framework", "tool", "language", "soft", "domain"]
+              }
+            },
+            required: ["skill"]
+          }
+        },
+        certifications: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              issuer: { type: "string" },
+              year: { type: "string" }
+            },
+            required: ["name"]
+          }
+        },
+        languages: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              language: { type: "string" },
+              proficiency: {
+                type: "string",
+                enum: ["native", "fluent", "professional", "conversational", "basic"]
+              }
+            },
+            required: ["language"]
+          }
+        },
+        raw_text_confidence: { type: "number", description: "Text extraction quality: 0.0-1.0" }
+      },
+      required: ["full_name", "roles", "education", "skills"]
     }
-  ],
-  "education": [
-    {
-      "institution": string,
-      "degree": string | null,
-      "field": string | null,
-      "graduation_year": string | null,
-      "grade": string | null
-    }
-  ],
-  "skills": [
-    {
-      "skill": string,
-      "years": number | null,
-      "proficiency": "beginner" | "intermediate" | "advanced" | "expert" | null,
-      "category": "technical" | "framework" | "tool" | "language" | "soft" | "domain" | null
-    }
-  ],
-  "certifications": [
-    { "name": string, "issuer": string | null, "year": string | null }
-  ],
-  "languages": [
-    { "language": string, "proficiency": "native" | "fluent" | "professional" | "conversational" | "basic" | null }
-  ],
-  "raw_text_confidence": number
-}
+  };
 
-Rules:
-- "headline" = a single punchy line summarizing the candidate (e.g. "Senior Full-Stack Engineer with 8 years in fintech")
-- "domain" = primary domain/specialization (e.g. "Full-Stack Web Development", "Data Science", "DevOps")
-- "seniority" = infer from title and experience years
-- "total_experience_years" = calculate from role dates if not explicitly stated; sum non-overlapping durations
-- "duration_months" = calculate from start_date/end_date if available
-- "achievements" = specific measurable accomplishments from that role (e.g. "Reduced API latency by 40%")
-- Normalize skill names to canonical forms: "JS" → "JavaScript", "TS" → "TypeScript", "k8s" → "Kubernetes"
-- Infer proficiency from years: <1yr=beginner, 1-2yr=intermediate, 2-5yr=advanced, 5+yr=expert
-- "raw_text_confidence": ${confidence} (already computed, use this value)
-- Dates: use "YYYY-MM" format where possible, or the original text if not parseable
+  const msg = await client.messages.create({
+    model: "claude-sonnet-4-5",
+    max_tokens: 4096,
+    tools: [extractTool],
+    tool_choice: { type: "tool", name: "extract_cv" },
+    messages: [{
+      role: "user",
+      content: `Extract all information from this CV. Be thorough and accurate. Normalize all skill names to canonical forms. Calculate experience durations precisely. Confidence value for text extraction is ${confidence}.
 
-CV Text:
-${rawText.slice(0, 14000)}`;
+CV TEXT:
+${rawText.slice(0, 15000)}`
+    }]
+  });
 
-  const response = await callClaude(prompt, 4096);
-  const jsonStr = extractJSON(response);
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    throw new Error(`Claude returned invalid JSON: ${jsonStr.slice(0, 300)}`);
+  const toolUse = msg.content.find((c) => c.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") {
+    throw new Error("Claude did not return structured extraction");
   }
+
+  const parsed = toolUse.input as Record<string, unknown>;
+  parsed.raw_text_confidence = confidence;
+  return parsed;
 }
 
 async function generateEnhancedSummary(parsedCV: Record<string, unknown>): Promise<string> {
-  const roles = (parsedCV.roles as Array<{ title: string; company: string; summary?: string; achievements?: string[] }> || [])
+  const Anthropic = (await import("@anthropic-ai/sdk")).default;
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+  const roles = (parsedCV.roles as Array<{ title: string; company: string; achievements?: string[] }> || [])
     .slice(0, 3)
-    .map(r => `${r.title} at ${r.company}${r.achievements?.length ? `: ${r.achievements.slice(0,2).join("; ")}` : ""}`)
+    .map(r => `${r.title} at ${r.company}${r.achievements?.length ? `: ${r.achievements.slice(0, 2).join("; ")}` : ""}`)
     .join(". ");
 
   const skills = (parsedCV.skills as Array<{ skill: string }> || [])
-    .slice(0, 10)
-    .map(s => s.skill)
-    .join(", ");
+    .slice(0, 10).map(s => s.skill).join(", ");
 
-  const prompt = `Write a 3-4 sentence professional recruiter summary for this candidate. Be specific and factual — mention actual skills, companies, and achievements. Write in third person. Do not use generic phrases like "results-driven" or "passionate".
+  const msg = await client.messages.create({
+    model: "claude-sonnet-4-5",
+    max_tokens: 512,
+    messages: [{
+      role: "user",
+      content: `Write a 3-4 sentence professional recruiter summary for this candidate. Mention actual skills, specific companies and concrete achievements. Write in third person. Do not use filler phrases like "results-driven", "passionate", "dynamic", or "proven track record".
 
-Key facts:
-- Name: ${parsedCV.full_name || "Unknown"}
-- Headline: ${parsedCV.headline || parsedCV.current_title || "N/A"}
-- Experience: ${parsedCV.total_experience_years || "?"} years
-- Domain: ${parsedCV.domain || "N/A"}
-- Seniority: ${parsedCV.seniority || "N/A"}
-- Recent roles: ${roles || "N/A"}
-- Top skills: ${skills || "N/A"}
+Name: ${parsedCV.full_name || "Unknown"}
+Headline: ${parsedCV.headline || parsedCV.current_title || "N/A"}
+Experience: ${parsedCV.total_experience_years || "?"} years | Domain: ${parsedCV.domain || "N/A"} | Seniority: ${parsedCV.seniority || "N/A"}
+Recent roles: ${roles || "N/A"}
+Top skills: ${skills || "N/A"}
 
-Return only the summary text.`;
+Return only the summary paragraph.`
+    }]
+  });
 
-  return (await callClaude(prompt, 512)).trim();
+  const block = msg.content[0] as { type: string; text: string };
+  return (block.type === "text" ? block.text : "").trim();
 }
 
 async function generateEmbedding(text: string): Promise<number[]> {

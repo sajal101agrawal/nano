@@ -75,6 +75,7 @@ export default async function RequirementDetailPage({
               COALESCE(c.headline, '') AS candidate_headline,
               c.availability_status AS candidate_availability,
               COALESCE(c.open_to_contract, FALSE) AS open_to_contract,
+              COALESCE(m.is_manual, FALSE) AS is_manual,
               COALESCE(
                 array_to_json(ARRAY(
                   SELECT cs.skill FROM candidate_skills cs

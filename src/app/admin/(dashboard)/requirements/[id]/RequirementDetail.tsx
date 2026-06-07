@@ -33,6 +33,7 @@ type MatchWithCandidate = Match & {
   candidate_availability: string;
   open_to_contract: boolean;
   skills: string[];
+  is_manual?: boolean;
 };
 
 type RequirementWithClient = Requirement & { client_name?: string };
@@ -161,6 +162,78 @@ export default function RequirementDetail({
   }, [requirement.id, matchQueued]);
 
   const parsed = requirement.parsed_requirements_json as ParsedRequirements | undefined;
+
+  // ── Shortlist management ─────────────────────────────────────────────────────
+  const [shortlistItems, setShortlistItems] = useState<MatchWithCandidate[]>(matches);
+  const shortlistedIds = new Set(shortlistItems.map((m) => m.candidate_id));
+
+  // Update shortlist when server data refreshes (router.refresh())
+  const [prevMatches, setPrevMatches] = useState(matches);
+  if (matches !== prevMatches) {
+    setPrevMatches(matches);
+    setShortlistItems(matches);
+  }
+
+  const [shortlistLoading, setShortlistLoading] = useState<Record<string, boolean>>({});
+  const [shortlistError, setShortlistError] = useState<string>("");
+
+  const handleAddToShortlist = useCallback(async (app: ApplicationWithCandidate) => {
+    setShortlistLoading((p) => ({ ...p, [app.candidate_id]: true }));
+    setShortlistError("");
+    try {
+      const res = await fetch("/api/admin/shortlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requirementId: requirement.id, candidateId: app.candidate_id }),
+      });
+      const json = await res.json() as { success: boolean; error?: string };
+      if (!json.success) throw new Error(json.error || "Failed");
+      // Optimistically add to shortlist items
+      setShortlistItems((prev) => [
+        ...prev,
+        {
+          id: `manual-${app.candidate_id}`,
+          requirement_id: requirement.id,
+          candidate_id: app.candidate_id,
+          candidate_name: app.candidate_name,
+          candidate_email: app.candidate_email,
+          candidate_headline: app.candidate_headline,
+          candidate_availability: app.candidate_availability,
+          open_to_contract: false,
+          skills: [],
+          score: undefined,
+          vector_score: undefined,
+          rule_score: undefined,
+          rationale: "Manually shortlisted by recruiter",
+          generated_at: new Date().toISOString(),
+          is_manual: true,
+        } as MatchWithCandidate,
+      ]);
+    } catch (err) {
+      setShortlistError(err instanceof Error ? err.message : "Failed to add to shortlist");
+    } finally {
+      setShortlistLoading((p) => ({ ...p, [app.candidate_id]: false }));
+    }
+  }, [requirement.id]);
+
+  const handleRemoveFromShortlist = useCallback(async (candidateId: string) => {
+    setShortlistLoading((p) => ({ ...p, [candidateId]: true }));
+    setShortlistError("");
+    try {
+      const res = await fetch("/api/admin/shortlist", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requirementId: requirement.id, candidateId }),
+      });
+      const json = await res.json() as { success: boolean; error?: string };
+      if (!json.success) throw new Error(json.error || "Failed");
+      setShortlistItems((prev) => prev.filter((m) => m.candidate_id !== candidateId));
+    } catch (err) {
+      setShortlistError(err instanceof Error ? err.message : "Failed to remove");
+    } finally {
+      setShortlistLoading((p) => ({ ...p, [candidateId]: false }));
+    }
+  }, [requirement.id]);
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -291,30 +364,33 @@ export default function RequirementDetail({
             {tab === "applications"
               ? `All Applications${applications.length > 0 ? ` (${applications.length})` : ""}`
               : tab === "shortlist"
-              ? `Shortlist${matches.length > 0 ? ` (${matches.length})` : ""}`
+              ? `Shortlist${shortlistItems.length > 0 ? ` (${shortlistItems.length})` : ""}`
               : "Details"}
           </button>
         ))}
       </div>
 
+      {shortlistError && (
+        <p className="text-xs text-red-400 bg-red-400/8 border border-red-400/20 rounded-lg px-3 py-2">{shortlistError}</p>
+      )}
+
       {/* ── Shortlist tab ────────────────────────────────────── */}
       {activeTab === "shortlist" && (
         <div className="space-y-3">
-          {matches.length === 0 ? (
+          {shortlistItems.length === 0 ? (
             <div className="rounded-xl border border-border bg-bg-secondary p-12 text-center">
               <p className="text-text-dim text-sm">No matches yet.</p>
               <p className="text-text-dim/60 text-xs mt-1">
-                Click &quot;Trigger Re-match&quot; to run AI matching against the candidate pool.
+                Click &quot;Trigger Re-match&quot; to run AI matching, or manually add candidates from the Applications tab.
               </p>
             </div>
           ) : (
-            matches.map((m) => (
+            shortlistItems.map((m) => (
               <div
                 key={m.id}
                 className="rounded-xl border border-border bg-bg-secondary p-4 space-y-3 hover:border-border-hover transition-colors"
               >
                 <div className="flex items-start gap-3">
-                  {/* Avatar */}
                   <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary text-xs font-semibold shrink-0">
                     {getInitials(m.candidate_name)}
                   </div>
@@ -330,13 +406,17 @@ export default function RequirementDetail({
                           contract ok
                         </span>
                       )}
+                      {m.is_manual && (
+                        <span className="text-[10px] font-medium text-amber-400 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                          manual
+                        </span>
+                      )}
                     </div>
                     {m.candidate_headline && (
                       <p className="text-xs text-text-dim mt-0.5 truncate">{m.candidate_headline}</p>
                     )}
                   </div>
 
-                  {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0">
                     <a
                       href={`/admin/candidates/${m.candidate_id}`}
@@ -350,29 +430,37 @@ export default function RequirementDetail({
                     >
                       Send email
                     </a>
+                    <button
+                      onClick={() => handleRemoveFromShortlist(m.candidate_id)}
+                      disabled={shortlistLoading[m.candidate_id]}
+                      title="Remove from shortlist"
+                      className="p-1.5 rounded-md text-text-muted hover:text-red-400 hover:bg-red-400/8 transition-colors disabled:opacity-40"
+                    >
+                      {shortlistLoading[m.candidate_id] ? (
+                        <div className="w-3.5 h-3.5 border border-text-dim/30 border-t-text-dim rounded-full animate-spin" />
+                      ) : (
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                    </button>
                   </div>
                 </div>
 
-                {/* Score bar */}
                 {m.score !== undefined && m.score !== null && (
                   <ScoreBar score={m.score * (m.score <= 1 ? 100 : 1)} />
                 )}
 
-                {/* Skills */}
                 {m.skills && m.skills.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {m.skills.map((s) => (
-                      <span
-                        key={s}
-                        className="text-[10px] font-medium bg-bg-hover border border-border text-text-dim px-2 py-0.5 rounded-md"
-                      >
+                      <span key={s} className="text-[10px] font-medium bg-bg-hover border border-border text-text-dim px-2 py-0.5 rounded-md">
                         {s}
                       </span>
                     ))}
                   </div>
                 )}
 
-                {/* Rationale */}
                 {m.rationale && (
                   <p className="text-xs text-text-dim leading-relaxed border-t border-border pt-2.5">
                     {m.rationale}
@@ -401,66 +489,99 @@ export default function RequirementDetail({
                   <th className="text-left px-5 py-3 text-xs font-medium text-text-dim">Candidate</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-text-dim hidden sm:table-cell">Status</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-text-dim hidden md:table-cell">Availability</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-text-dim hidden lg:table-cell">Score</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-text-dim hidden lg:table-cell">Match Score</th>
                   <th className="text-right px-5 py-3 text-xs font-medium text-text-dim hidden sm:table-cell">Applied</th>
                   <th className="text-right px-5 py-3 text-xs font-medium text-text-dim">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {applications.map((app) => (
-                  <tr key={app.id} className="hover:bg-bg-hover transition-colors">
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-primary text-[10px] font-semibold shrink-0">
-                          {getInitials(app.candidate_name)}
+                {applications.map((app) => {
+                  const inShortlist = shortlistedIds.has(app.candidate_id);
+                  const loadingShortlist = shortlistLoading[app.candidate_id];
+                  // match_score on application is stored 0-1 range
+                  const scoreDisplay = app.match_score != null
+                    ? (app.match_score <= 1 ? app.match_score * 100 : app.match_score)
+                    : null;
+                  return (
+                    <tr key={app.id} className="hover:bg-bg-hover transition-colors">
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-primary text-[10px] font-semibold shrink-0">
+                            {getInitials(app.candidate_name)}
+                          </div>
+                          <div className="min-w-0">
+                            <a href={`/admin/candidates/${app.candidate_id}`} className="text-sm font-medium text-text-light hover:text-primary transition-colors">
+                              {app.candidate_name}
+                            </a>
+                            {app.candidate_headline && (
+                              <p className="text-xs text-text-dim truncate max-w-[180px]">{app.candidate_headline}</p>
+                            )}
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <a
-                            href={`/admin/candidates/${app.candidate_id}`}
-                            className="text-sm font-medium text-text-light hover:text-primary transition-colors"
+                      </td>
+                      <td className="px-4 py-3.5 hidden sm:table-cell">
+                        <span className={applicationStatusBadgeClass(app.status)}>
+                          {app.status.replace(/_/g, " ")}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 hidden md:table-cell">
+                        <span className={availabilityBadgeClass(app.candidate_availability)}>
+                          {app.candidate_availability}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 hidden lg:table-cell">
+                        {scoreDisplay !== null ? (
+                          <div className="w-24">
+                            <ScoreBar score={scoreDisplay} />
+                          </div>
+                        ) : (
+                          <span className="text-xs text-text-dim/40">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5 text-right hidden sm:table-cell">
+                        <span className="text-xs text-text-dim" title={formatDate(app.applied_at)}>
+                          {formatRelativeTime(app.applied_at)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => inShortlist ? handleRemoveFromShortlist(app.candidate_id) : handleAddToShortlist(app)}
+                            disabled={loadingShortlist}
+                            title={inShortlist ? "Remove from shortlist" : "Add to shortlist"}
+                            className={cn(
+                              "px-2.5 py-1 rounded-md border text-xs font-medium transition-colors inline-flex items-center gap-1 disabled:opacity-40",
+                              inShortlist
+                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-red-400/10 hover:border-red-400/30 hover:text-red-400"
+                                : "border-border text-text-dim hover:text-primary hover:border-primary/30 hover:bg-primary/8"
+                            )}
                           >
-                            {app.candidate_name}
+                            {loadingShortlist ? (
+                              <div className="w-3 h-3 border border-current/30 border-t-current rounded-full animate-spin" />
+                            ) : inShortlist ? (
+                              <>
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Shortlisted
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                                Shortlist
+                              </>
+                            )}
+                          </button>
+                          <a href={`/admin/candidates/${app.candidate_id}`} className="text-xs text-primary hover:underline">
+                            View
                           </a>
-                          {app.candidate_headline && (
-                            <p className="text-xs text-text-dim truncate max-w-[180px]">{app.candidate_headline}</p>
-                          )}
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5 hidden sm:table-cell">
-                      <span className={applicationStatusBadgeClass(app.status)}>
-                        {app.status.replace(/_/g, " ")}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 hidden md:table-cell">
-                      <span className={availabilityBadgeClass(app.candidate_availability)}>
-                        {app.candidate_availability}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 hidden lg:table-cell">
-                      {app.match_score !== undefined && app.match_score !== null ? (
-                        <div className="w-24">
-                          <ScoreBar score={app.match_score <= 1 ? app.match_score * 100 : app.match_score} />
-                        </div>
-                      ) : (
-                        <span className="text-xs text-text-dim/40">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5 text-right hidden sm:table-cell">
-                      <span className="text-xs text-text-dim" title={formatDate(app.applied_at)}>
-                        {formatRelativeTime(app.applied_at)}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <a
-                        href={`/admin/candidates/${app.candidate_id}`}
-                        className="text-xs text-primary hover:underline"
-                      >
-                        View
-                      </a>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

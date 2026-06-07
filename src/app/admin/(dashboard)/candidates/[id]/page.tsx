@@ -21,6 +21,9 @@ import type {
   AvailabilityEvent,
   OutreachMessage,
   Role,
+  Education,
+  Certification,
+  SpokenLanguage,
   MessageStatus,
 } from "@/types";
 
@@ -119,6 +122,9 @@ export default async function CandidateDetailPage({
     candidate.full_name || candidate.primary_email || "Unknown";
   const parsedCV = profile?.parsed_json;
   const roles: Role[] = parsedCV?.roles || [];
+  const education = parsedCV?.education || [];
+  const certifications = parsedCV?.certifications || [];
+  const languages = parsedCV?.languages || [];
   const hasCv = !!profile?.raw_cv_url;
   const parseAlert =
     profile?.parse_status === "failed" ||
@@ -243,7 +249,10 @@ export default async function CandidateDetailPage({
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-sm font-semibold text-text-light">{role.title}</p>
-                            <p className="text-xs text-text-dim mt-0.5">{role.company}</p>
+                            <p className="text-xs text-text-dim mt-0.5">
+                              {role.company}
+                              {role.location ? ` · ${role.location}` : ""}
+                            </p>
                           </div>
                           <div className="text-right shrink-0">
                             {role.is_current && (
@@ -257,17 +266,88 @@ export default async function CandidateDetailPage({
                                 </>
                               )}
                             </p>
+                            {role.duration_months && (
+                              <p className="text-xs text-text-dim/60 mt-0.5">
+                                {role.duration_months >= 12
+                                  ? `${Math.floor(role.duration_months / 12)}y ${role.duration_months % 12 > 0 ? `${role.duration_months % 12}m` : ""}`
+                                  : `${role.duration_months}m`}
+                              </p>
+                            )}
                           </div>
                         </div>
                         {role.summary && (
-                          <p className="text-xs text-text-dim mt-2 leading-relaxed">
-                            {role.summary}
-                          </p>
+                          <p className="text-xs text-text-dim mt-2 leading-relaxed">{role.summary}</p>
+                        )}
+                        {role.achievements && role.achievements.length > 0 && (
+                          <ul className="mt-2 space-y-1">
+                            {role.achievements.map((ach, ai) => (
+                              <li key={ai} className="text-xs text-text-dim flex gap-2">
+                                <span className="text-primary/60 shrink-0">▸</span>
+                                <span>{ach}</span>
+                              </li>
+                            ))}
+                          </ul>
                         )}
                       </div>
                     </div>
                   ))}
                 </div>
+              </div>
+            </section>
+          )}
+
+          {/* Education */}
+          {education.length > 0 && (
+            <section>
+              <h2 className="text-sm font-semibold text-text-light mb-4 flex items-center gap-2">
+                <svg className="w-4 h-4 text-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+                </svg>
+                Education
+              </h2>
+              <div className="space-y-3">
+                {(education as Education[]).map((edu, i) => (
+                  <div key={i} className="bg-bg-secondary border border-border rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-text-light">{edu.institution}</p>
+                        {(edu.degree || edu.field) && (
+                          <p className="text-xs text-text-dim mt-0.5">
+                            {[edu.degree, edu.field].filter(Boolean).join(", ")}
+                          </p>
+                        )}
+                        {edu.grade && <p className="text-xs text-text-dim/60 mt-0.5">Grade: {edu.grade}</p>}
+                      </div>
+                      {edu.graduation_year && (
+                        <span className="text-xs text-text-dim shrink-0">{edu.graduation_year}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Certifications */}
+          {certifications.length > 0 && (
+            <section>
+              <h2 className="text-sm font-semibold text-text-light mb-4 flex items-center gap-2">
+                <svg className="w-4 h-4 text-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                </svg>
+                Certifications
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {(certifications as Certification[]).map((cert, i) => (
+                  <div key={i} className="bg-bg-secondary border border-border rounded-lg px-3 py-2">
+                    <p className="text-xs font-medium text-text-light">{cert.name}</p>
+                    {(cert.issuer || cert.year) && (
+                      <p className="text-xs text-text-dim mt-0.5">
+                        {[cert.issuer, cert.year].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                ))}
               </div>
             </section>
           )}
@@ -391,16 +471,11 @@ export default async function CandidateDetailPage({
         <div className="space-y-5">
           {/* Contact & Meta */}
           <section className="bg-bg-secondary border border-border rounded-xl p-5 space-y-3">
-            <h3 className="text-xs font-semibold text-text-dim uppercase tracking-wide">
-              Details
-            </h3>
+            <h3 className="text-xs font-semibold text-text-dim uppercase tracking-wide">Contact</h3>
             {candidate.primary_email && (
               <div>
                 <p className="text-xs text-text-dim">Email</p>
-                <a
-                  href={`mailto:${candidate.primary_email}`}
-                  className="text-sm text-primary hover:underline break-all"
-                >
+                <a href={`mailto:${candidate.primary_email}`} className="text-sm text-primary hover:underline break-all">
                   {candidate.primary_email}
                 </a>
               </div>
@@ -408,13 +483,56 @@ export default async function CandidateDetailPage({
             {candidate.primary_phone && (
               <div>
                 <p className="text-xs text-text-dim">Phone</p>
-                <p className="text-sm text-text-light">{candidate.primary_phone}</p>
+                <a href={`tel:${candidate.primary_phone}`} className="text-sm text-text-light hover:text-primary transition-colors">
+                  {candidate.primary_phone}
+                </a>
               </div>
             )}
+            {parsedCV?.linkedin && (
+              <div>
+                <p className="text-xs text-text-dim">LinkedIn</p>
+                <a href={parsedCV.linkedin} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline break-all">
+                  {parsedCV.linkedin.replace("https://www.linkedin.com/in/", "in/")}
+                </a>
+              </div>
+            )}
+            {parsedCV?.github && (
+              <div>
+                <p className="text-xs text-text-dim">GitHub</p>
+                <a href={parsedCV.github} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline break-all">
+                  {parsedCV.github.replace("https://github.com/", "github/")}
+                </a>
+              </div>
+            )}
+            {parsedCV?.portfolio && (
+              <div>
+                <p className="text-xs text-text-dim">Portfolio</p>
+                <a href={parsedCV.portfolio} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline break-all truncate block">
+                  {parsedCV.portfolio}
+                </a>
+              </div>
+            )}
+          </section>
+
+          {/* Professional Details */}
+          <section className="bg-bg-secondary border border-border rounded-xl p-5 space-y-3">
+            <h3 className="text-xs font-semibold text-text-dim uppercase tracking-wide">Details</h3>
             {candidate.location && (
               <div>
                 <p className="text-xs text-text-dim">Location</p>
                 <p className="text-sm text-text-light">{candidate.location}</p>
+              </div>
+            )}
+            {parsedCV?.domain && (
+              <div>
+                <p className="text-xs text-text-dim">Domain</p>
+                <p className="text-sm text-text-light">{parsedCV.domain}</p>
+              </div>
+            )}
+            {parsedCV?.seniority && (
+              <div>
+                <p className="text-xs text-text-dim">Seniority</p>
+                <p className="text-sm text-text-light capitalize">{parsedCV.seniority}</p>
               </div>
             )}
             {candidate.work_mode && (
@@ -427,18 +545,7 @@ export default async function CandidateDetailPage({
               <div>
                 <p className="text-xs text-text-dim">Notice period</p>
                 <p className="text-sm text-text-light">
-                  {candidate.notice_period_days} day{candidate.notice_period_days !== 1 ? "s" : ""}
-                </p>
-              </div>
-            )}
-            {candidate.expected_rate && (
-              <div>
-                <p className="text-xs text-text-dim">Expected rate</p>
-                <p className="text-sm text-text-light">
-                  {candidate.expected_rate}
-                  {candidate.expected_rate_currency
-                    ? ` ${candidate.expected_rate_currency}`
-                    : ""}
+                  {candidate.notice_period_days === 0 ? "Immediate" : `${candidate.notice_period_days} days`}
                 </p>
               </div>
             )}
@@ -449,19 +556,52 @@ export default async function CandidateDetailPage({
             {candidate.last_active_at && (
               <div>
                 <p className="text-xs text-text-dim">Last active</p>
-                <p className="text-sm text-text-light">
-                  {formatRelativeTime(candidate.last_active_at)}
-                </p>
+                <p className="text-sm text-text-light">{formatRelativeTime(candidate.last_active_at)}</p>
               </div>
             )}
           </section>
 
+          {/* Compensation */}
+          {(candidate.expected_rate || profile?.expected_rate) && (
+            <section className="bg-bg-secondary border border-border rounded-xl p-5 space-y-3">
+              <h3 className="text-xs font-semibold text-text-dim uppercase tracking-wide">Compensation</h3>
+              {(candidate.expected_rate || profile?.expected_rate) && (
+                <div>
+                  <p className="text-xs text-text-dim">Expected rate / CTC</p>
+                  <p className="text-sm text-text-light font-medium">
+                    {candidate.expected_rate || profile?.expected_rate}
+                    {" "}
+                    <span className="text-text-dim font-normal">
+                      {candidate.expected_rate_currency || profile?.currency || ""}
+                    </span>
+                  </p>
+                </div>
+              )}
+              <div className="flex gap-3">
+                {candidate.open_to_contract != null && (
+                  <div>
+                    <p className="text-xs text-text-dim">Contract</p>
+                    <p className={cn("text-xs font-medium mt-0.5", candidate.open_to_contract ? "text-emerald-400" : "text-text-dim/50")}>
+                      {candidate.open_to_contract ? "Open" : "No"}
+                    </p>
+                  </div>
+                )}
+                {candidate.open_to_fulltime != null && (
+                  <div>
+                    <p className="text-xs text-text-dim">Full-time</p>
+                    <p className={cn("text-xs font-medium mt-0.5", candidate.open_to_fulltime ? "text-emerald-400" : "text-text-dim/50")}>
+                      {candidate.open_to_fulltime ? "Open" : "No"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           {/* CV */}
           {hasCv && (
             <section className="bg-bg-secondary border border-border rounded-xl p-5">
-              <h3 className="text-xs font-semibold text-text-dim uppercase tracking-wide mb-3">
-                CV
-              </h3>
+              <h3 className="text-xs font-semibold text-text-dim uppercase tracking-wide mb-3">CV</h3>
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-9 h-9 rounded-lg bg-bg-hover flex items-center justify-center shrink-0">
                   <svg className="w-4 h-4 text-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -469,12 +609,8 @@ export default async function CandidateDetailPage({
                   </svg>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm text-text-light truncate">
-                    {profile?.raw_cv_filename || "CV document"}
-                  </p>
-                  <p className="text-xs text-text-dim capitalize">
-                    {profile?.parse_status?.replace(/_/g, " ")}
-                  </p>
+                  <p className="text-sm text-text-light truncate">{profile?.raw_cv_filename || "CV document"}</p>
+                  <p className="text-xs text-text-dim capitalize">{profile?.parse_status?.replace(/_/g, " ")}</p>
                 </div>
               </div>
               <CVViewer
@@ -489,25 +625,39 @@ export default async function CandidateDetailPage({
           {/* Skills */}
           {skills.length > 0 && (
             <section className="bg-bg-secondary border border-border rounded-xl p-5">
-              <h3 className="text-xs font-semibold text-text-dim uppercase tracking-wide mb-3">
-                Skills
-              </h3>
+              <h3 className="text-xs font-semibold text-text-dim uppercase tracking-wide mb-3">Skills</h3>
               <div className="flex flex-wrap gap-1.5">
                 {skills.map((s) => (
                   <span
                     key={s.id}
-                    title={
-                      s.years
-                        ? `${s.years} yr${s.years !== 1 ? "s" : ""}`
-                        : undefined
-                    }
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-bg-hover text-text-light text-xs border border-border"
+                    title={s.years ? `${s.years} yr${s.years !== 1 ? "s" : ""}` : undefined}
+                    className={cn(
+                      "inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs border",
+                      s.proficiency === "expert" ? "bg-primary/10 border-primary/20 text-primary" :
+                      s.proficiency === "advanced" ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
+                      "bg-bg-hover border-border text-text-light"
+                    )}
                   >
                     {s.skill}
-                    {s.years ? (
-                      <span className="text-text-dim">{s.years}y</span>
-                    ) : null}
+                    {s.years ? <span className="text-text-dim">{s.years}y</span> : null}
                   </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Languages */}
+          {languages.length > 0 && (
+            <section className="bg-bg-secondary border border-border rounded-xl p-5">
+              <h3 className="text-xs font-semibold text-text-dim uppercase tracking-wide mb-3">Languages</h3>
+              <div className="space-y-1.5">
+                {(languages as SpokenLanguage[]).map((lang, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <p className="text-sm text-text-light">{lang.language}</p>
+                    {lang.proficiency && (
+                      <span className="text-xs text-text-dim capitalize">{lang.proficiency}</span>
+                    )}
+                  </div>
                 ))}
               </div>
             </section>
@@ -524,37 +674,22 @@ export default async function CandidateDetailPage({
                 <div className="space-y-3">
                   {availabilityEvents.map((ev) => (
                     <div key={ev.id} className="relative">
-                      <div
-                        className={cn(
-                          "absolute -left-4 top-1.5 w-2 h-2 rounded-full border-2 border-bg-secondary",
-                          ev.status === "available"
-                            ? "bg-emerald-500"
-                            : ev.status === "unavailable"
-                              ? "bg-red-500"
-                              : "bg-amber-500"
-                        )}
-                      />
+                      <div className={cn(
+                        "absolute -left-4 top-1.5 w-2 h-2 rounded-full border-2 border-bg-secondary",
+                        ev.status === "available" ? "bg-emerald-500" :
+                        ev.status === "unavailable" ? "bg-red-500" : "bg-amber-500"
+                      )} />
                       <div>
                         <div className="flex items-center gap-2">
-                          <span
-                            className={cn(
-                              "text-xs font-medium",
-                              ev.status === "available"
-                                ? "text-emerald-400"
-                                : ev.status === "unavailable"
-                                  ? "text-red-400"
-                                  : "text-amber-400"
-                            )}
-                          >
+                          <span className={cn("text-xs font-medium",
+                            ev.status === "available" ? "text-emerald-400" :
+                            ev.status === "unavailable" ? "text-red-400" : "text-amber-400"
+                          )}>
                             {ev.status}
                           </span>
-                          <span className="text-xs text-text-dim capitalize">
-                            via {ev.source.replace(/_/g, " ")}
-                          </span>
+                          <span className="text-xs text-text-dim capitalize">via {ev.source.replace(/_/g, " ")}</span>
                         </div>
-                        <p className="text-xs text-text-dim mt-0.5">
-                          {formatRelativeTime(ev.responded_at || ev.requested_at)}
-                        </p>
+                        <p className="text-xs text-text-dim mt-0.5">{formatRelativeTime(ev.responded_at || ev.requested_at)}</p>
                       </div>
                     </div>
                   ))}
