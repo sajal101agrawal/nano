@@ -43,10 +43,9 @@ async function getCandidates(sp: ResolvedSP) {
 
   if (q) {
     params.push(`%${q}%`);
-    params.push(q);
     conditions.push(
-      `(c.full_name ILIKE $${params.length - 1} OR c.primary_email ILIKE $${params.length - 1} OR EXISTS (
-        SELECT 1 FROM candidate_skills cs WHERE cs.candidate_id = c.id AND cs.skill ILIKE $${params.length - 1}
+      `(c.full_name ILIKE $${params.length} OR c.primary_email ILIKE $${params.length} OR EXISTS (
+        SELECT 1 FROM candidate_skills cs WHERE cs.candidate_id = c.id AND cs.skill ILIKE $${params.length}
       ))`
     );
   }
