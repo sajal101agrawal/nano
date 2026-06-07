@@ -11,6 +11,7 @@ import {
   availabilityBadgeClass,
   getInitials,
 } from "@/lib/cn";
+import SendEmailModal from "@/app/admin/(dashboard)/candidates/[id]/SendEmailModal";
 import type {
   Requirement,
   RequirementQuestion,
@@ -165,6 +166,9 @@ export default function RequirementDetail({
 
   // ── Shortlist management ─────────────────────────────────────────────────────
   const [shortlistItems, setShortlistItems] = useState<MatchWithCandidate[]>(matches);
+
+  // ── Email modal state ─────────────────────────────────────────────────────
+  const [emailTarget, setEmailTarget] = useState<{ candidateId: string; candidateName: string; candidateEmail: string } | null>(null);
   const shortlistedIds = new Set(shortlistItems.map((m) => m.candidate_id));
 
   // Update shortlist when server data refreshes (router.refresh())
@@ -373,7 +377,6 @@ export default function RequirementDetail({
       {shortlistError && (
         <p className="text-xs text-red-400 bg-red-400/8 border border-red-400/20 rounded-lg px-3 py-2">{shortlistError}</p>
       )}
-
       {/* ── Shortlist tab ────────────────────────────────────── */}
       {activeTab === "shortlist" && (
         <div className="space-y-3">
@@ -424,12 +427,12 @@ export default function RequirementDetail({
                     >
                       View profile
                     </a>
-                    <a
-                      href={`mailto:${m.candidate_email}?subject=Opportunity: ${encodeURIComponent(requirement.title)}`}
+                    <button
+                      onClick={() => setEmailTarget({ candidateId: m.candidate_id, candidateName: m.candidate_name, candidateEmail: m.candidate_email })}
                       className="px-2.5 py-1 rounded-md bg-primary/10 border border-primary/30 text-xs text-primary hover:bg-primary/20 transition-colors"
                     >
                       Send email
-                    </a>
+                    </button>
                     <button
                       onClick={() => handleRemoveFromShortlist(m.candidate_id)}
                       disabled={shortlistLoading[m.candidate_id]}
@@ -750,5 +753,17 @@ export default function RequirementDetail({
         </div>
       )}
     </div>
+
+      {/* Email modal — send via platform, not mailto */}
+      {emailTarget && (
+        <SendEmailModal
+          candidateId={emailTarget.candidateId}
+          candidateName={emailTarget.candidateName}
+          candidateEmail={emailTarget.candidateEmail}
+          requirementId={requirement.id}
+          defaultSubject={`Opportunity: ${requirement.title}`}
+          onClose={() => setEmailTarget(null)}
+        />
+      )}
   );
 }

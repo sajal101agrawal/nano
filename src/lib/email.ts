@@ -14,7 +14,7 @@ function getResend(): Resend {
 
 const TRANSACTIONAL_FROM = `${process.env.EMAIL_FROM_NAME || "Nano"} <${process.env.EMAIL_FROM_TRANSACTIONAL || "noreply@sajaltech.com"}>`;
 const OUTREACH_FROM = `${process.env.EMAIL_FROM_NAME || "Nano"} <${process.env.EMAIL_FROM_OUTREACH || "talent@mail.sajaltech.com"}>`;
-
+const REPLY_TO = process.env.EMAIL_REPLY_TO || "contact@sajaltech.com";
 export async function isEmailSuppressed(email: string): Promise<boolean> {
   const row = await queryOne(
     "SELECT id FROM suppression_list WHERE email = $1",
@@ -55,6 +55,8 @@ interface SendEmailOptions {
   messageId?: string;
   threadId?: string;
   tags?: Array<{ name: string; value: string }>;
+  cc?: string[];
+  attachments?: Array<{ filename: string; content: string; contentType: string }>;
 }
 
 export async function sendEmail(
@@ -68,9 +70,16 @@ export async function sendEmail(
       const result = await getResend().emails.send({
         from,
         to: options.to,
+        cc: options.cc?.length ? options.cc : undefined,
+        reply_to: REPLY_TO,
         subject: options.subject,
         html: options.html,
         tags: options.tags,
+        attachments: options.attachments?.map((a) => ({
+          filename: a.filename,
+          content: Buffer.from(a.content, "base64"),
+          contentType: a.contentType,
+        })),
         headers: options.threadId
           ? {
               "In-Reply-To": options.threadId,

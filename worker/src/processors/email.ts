@@ -6,7 +6,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 const TRANSACTIONAL_FROM = `${process.env.EMAIL_FROM_NAME || "Nano"} <${process.env.EMAIL_FROM_TRANSACTIONAL || "noreply@sajaltech.com"}>`;
 const OUTREACH_FROM = `${process.env.EMAIL_FROM_NAME || "Nano"} <${process.env.EMAIL_FROM_OUTREACH || "talent@mail.sajaltech.com"}>`;
-
+const REPLY_TO = process.env.EMAIL_REPLY_TO || "contact@sajaltech.com";
 import { Pool } from "pg";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 
@@ -24,16 +24,23 @@ async function dbQuery<T = Record<string, unknown>>(
 }
 
 export async function emailProcessor(job: Job): Promise<void> {
-  const { messageId, to, subject, html, stream, threadId, tags } = job.data;
+  const { messageId, to, subject, html, stream, threadId, tags, cc, attachments } = job.data;
 
   const from = stream === "transactional" ? TRANSACTIONAL_FROM : OUTREACH_FROM;
 
   const result = await resend.emails.send({
     from,
     to,
+    cc: cc?.length ? cc : undefined,
+    reply_to: REPLY_TO,
     subject,
     html,
     tags,
+    attachments: attachments?.map((a: { filename: string; content: string; contentType: string }) => ({
+      filename: a.filename,
+      content: Buffer.from(a.content, "base64"),
+      contentType: a.contentType,
+    })),
     headers: threadId
       ? { "In-Reply-To": threadId, References: threadId }
       : undefined,

@@ -153,7 +153,6 @@ export async function GET(
     if (candidate.total_experience_years != null) stats.push(`${candidate.total_experience_years} yrs experience`);
     if (parsedCV?.domain) stats.push(String(parsedCV.domain));
     if (parsedCV?.seniority) stats.push(String(parsedCV.seniority).charAt(0).toUpperCase() + String(parsedCV.seniority).slice(1) + " level");
-    if (candidate.expected_rate) stats.push(`Expected: ${candidate.expected_rate} ${candidate.expected_rate_currency || ""}`.trim());
     if (candidate.notice_period_days != null) {
       stats.push(`Notice: ${candidate.notice_period_days === 0 ? "Immediate" : candidate.notice_period_days + " days"}`);
     }

@@ -13,14 +13,21 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      targetType,
-      targetId,
+      targetType: rawTargetType,
+      targetId: rawTargetId,
+      // Legacy shorthand used by candidate detail page
+      candidateId,
       requirementId,
       templateId,
       subject: rawSubject,
       body: rawBody,
       variables = {},
+      cc = [],
+      attachments = [],
     } = body;
+
+    const targetType = rawTargetType || (candidateId ? "candidate" : undefined);
+    const targetId   = rawTargetId   || candidateId || undefined;
 
     if (!targetType || !targetId || !rawSubject || !rawBody) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -96,6 +103,8 @@ export async function POST(req: NextRequest) {
       subject,
       html,
       stream,
+      cc: cc.filter((e: string) => e.trim()),
+      attachments,
       tags: [{ name: "target_type", value: targetType }],
     });
 

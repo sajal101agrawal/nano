@@ -76,6 +76,8 @@ export interface EmailJobData {
   stream: "transactional" | "availability" | "outreach";
   threadId?: string;
   tags?: Array<{ name: string; value: string }>;
+  cc?: string[];
+  attachments?: Array<{ filename: string; content: string; contentType: string }>;
 }
 
 export interface MatchJobData {
