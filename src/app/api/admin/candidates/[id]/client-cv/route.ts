@@ -4,19 +4,21 @@ import { queryOne, query } from "@/lib/db";
 import path from "path";
 import type { CandidateProfile, Candidate, CandidateSkill } from "@/types";
 
-// ── Awesome-CV faithful colour palette ──────────────────────────────────────
-const DARKGRAY = "#333333";   // name last name
-const GRAY = "#5D5D5D";       // name first name, graytext
-const LIGHTGRAY = "#999999";  // lighttext, dividers
-const DARKTEXT = "#414141";   // body text
-const ACCENT = "#0395DE";     // skyblue accent (position, section colour, icons)
+// ── Professional dark palette (no light blue) ────────────────────────────────
+const NAME_DARK  = "#1a202c";   // near-black for name
+const SECTION_FG = "#1e3a5f";   // deep navy for section headings
+const RULE_CLR   = "#1e3a5f";   // same navy for rule accent
+const BODY_CLR   = "#2d3748";   // dark slate for body text
+const META_CLR   = "#4a5568";   // medium gray for company/institution
+const DATE_CLR   = "#718096";   // lighter gray for dates
+const LIGHT_CLR  = "#a0aec0";   // lightest for dividers/footer
+const BULLET_CLR = "#1e3a5f";   // navy bullets
 
 function rgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
 }
 
-// Resolve fonts relative to this file's location
 const FONTS = path.resolve(process.cwd(), "src/assets/fonts");
 
 export async function GET(
@@ -29,351 +31,346 @@ export async function GET(
     if (!session) return new NextResponse("Unauthorized", { status: 401 });
 
     const [candidate, profile, skills, settings] = await Promise.all([
-      queryOne<Candidate>("SELECT * FROM candidates WHERE id = $1 AND status != 'deleted'", [id]),
-      queryOne<CandidateProfile>(
-        "SELECT * FROM candidate_profiles WHERE candidate_id = $1 AND is_current = TRUE", [id]
-      ),
-      query<CandidateSkill>(
-        "SELECT * FROM candidate_skills WHERE candidate_id = $1 ORDER BY years DESC NULLS LAST LIMIT 30", [id]
-      ),
+      queryOne<Candidate>("SELECT * FROM candidates WHERE id=$1 AND status!='deleted'", [id]),
+      queryOne<CandidateProfile>("SELECT * FROM candidate_profiles WHERE candidate_id=$1 AND is_current=TRUE", [id]),
+      query<CandidateSkill>("SELECT * FROM candidate_skills WHERE candidate_id=$1 ORDER BY years DESC NULLS LAST LIMIT 30", [id]),
       query<{ key: string; value: string }>("SELECT key, value FROM app_settings").catch(() => [] as { key: string; value: string }[]),
     ]);
 
     if (!candidate) return new NextResponse("Not found", { status: 404 });
 
-    const cfg = Object.fromEntries((settings || []).map((r) => [r.key, r.value]));
+    const cfg = Object.fromEntries((settings || []).map(r => [r.key, r.value]));
     const parsedCV = profile?.parsed_json;
 
-    const roles = (parsedCV?.roles || []) as Array<{
-      title: string; company: string; location?: string;
-      start_date?: string; end_date?: string; is_current?: boolean;
-      summary?: string; achievements?: string[];
-    }>;
-    const education = (parsedCV?.education || []) as Array<{
-      institution: string; degree?: string; field?: string;
-      graduation_year?: string; grade?: string;
-    }>;
-    const certifications = (parsedCV?.certifications || []) as Array<{
-      name: string; issuer?: string; year?: string;
-    }>;
-    const languages = (parsedCV?.languages || []) as Array<{
-      language: string; proficiency?: string;
-    }>;
+    const roles = (parsedCV?.roles || []) as Array<{ title:string; company:string; location?:string; start_date?:string; end_date?:string; is_current?:boolean; summary?:string; achievements?:string[] }>;
+    const projects = (parsedCV?.projects || []) as Array<{ name:string; description?:string; technologies?:string[]; url?:string; highlights?:string[] }>;
+    const education = (parsedCV?.education || []) as Array<{ institution:string; degree?:string; field?:string; graduation_year?:string; grade?:string }>;
+    const certifications = (parsedCV?.certifications || []) as Array<{ name:string; issuer?:string; year?:string }>;
+    const awards = (parsedCV?.awards || []) as Array<{ title:string; issuer?:string; year?:string; description?:string }>;
+    const publications = (parsedCV?.publications || []) as Array<{ title:string; publisher?:string; year?:string; url?:string }>;
+    const languages = (parsedCV?.languages || []) as Array<{ language:string; proficiency?:string }>;
 
     const fullName = candidate.full_name || candidate.primary_email || "Candidate";
-    // Split into first/last for the two-tone header
     const nameParts = fullName.trim().split(/\s+/);
-    const firstName = nameParts.slice(0, -1).join(" ") || fullName;
-    const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+    const firstName = nameParts.slice(0,-1).join(" ") || fullName;
+    const lastName  = nameParts.length > 1 ? nameParts[nameParts.length-1] : "";
 
-    const agencyName = cfg.agency_name || "";
-    const agencyEmail = cfg.agency_email || "";
-    const agencyPhone = cfg.agency_phone || "";
+    // Agency contact details (NOT candidate's personal info)
+    const agencyName    = cfg.agency_name    || "";
+    const agencyEmail   = cfg.agency_email   || "";
+    const agencyPhone   = cfg.agency_phone   || "";
     const agencyWebsite = cfg.agency_website || "";
+    const agencyTagline = cfg.agency_tagline || "";
 
     const PDFDocument = (await import("pdfkit")).default;
 
     const doc = new PDFDocument({
-      size: "A4",
-      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      size: "A4", margins: {top:0,bottom:0,left:0,right:0},
       bufferPages: true,
-      info: { Title: `${fullName} — CV`, Author: agencyName || "Recruiter" },
+      info: { Title: `${fullName} — Profile`, Author: agencyName || "Recruiter" },
     });
 
-    // Register fonts — Awesome CV uses Roboto for headers, Source Sans Pro for body
-    doc.registerFont("Roboto-Light", path.join(FONTS, "Roboto-Light.ttf"));
-    doc.registerFont("Roboto", path.join(FONTS, "Roboto-Regular.ttf"));
-    doc.registerFont("Roboto-Bold", path.join(FONTS, "Roboto-Bold.ttf"));
-    doc.registerFont("SSP", path.join(FONTS, "SourceSansPro-Regular.ttf"));
-    doc.registerFont("SSP-Bold", path.join(FONTS, "SourceSansPro-Bold.ttf"));
-    doc.registerFont("SSP-Light", path.join(FONTS, "SourceSansPro-Light.ttf"));
-    doc.registerFont("SSP-Italic", path.join(FONTS, "SourceSansPro-Italic.ttf"));
+    doc.registerFont("R-Light",  path.join(FONTS, "Roboto-Light.ttf"));
+    doc.registerFont("R-Bold",   path.join(FONTS, "Roboto-Bold.ttf"));
+    doc.registerFont("S",        path.join(FONTS, "SourceSansPro-Regular.ttf"));
+    doc.registerFont("S-Bold",   path.join(FONTS, "SourceSansPro-Bold.ttf"));
+    doc.registerFont("S-Light",  path.join(FONTS, "SourceSansPro-Light.ttf"));
+    doc.registerFont("S-Italic", path.join(FONTS, "SourceSansPro-Italic.ttf"));
 
-    const PAGE_W = doc.page.width;   // 595.28
-    const PAGE_H = doc.page.height;  // 841.89
-    const ML = 57;   // 2 cm
-    const MR = 57;
-    const MT = 43;   // 1.5 cm
-    const W = PAGE_W - ML - MR;
+    const PW = doc.page.width;
+    const ML = 57, MR = 57, MT = 48;
+    const W  = PW - ML - MR;
 
-    // ── Cursor tracking ────────────────────────────────────────────────────
     let cy = MT;
 
-    const checkPageBreak = (needed: number) => {
-      if (cy + needed > PAGE_H - 50) {
-        doc.addPage({ margins: { top: 0, bottom: 0, left: 0, right: 0 } });
+    const needSpace = (h: number) => {
+      if (cy + h > doc.page.height - 52) {
+        doc.addPage({ margins:{top:0,bottom:0,left:0,right:0} });
         cy = MT;
       }
     };
 
-    // ── HEADER ─────────────────────────────────────────────────────────────
-    // Name: "First" in light gray, "Last" in dark gray — Roboto Light 32pt
-    const nameSize = 32;
-    doc.font("Roboto-Light").fontSize(nameSize);
-    const firstW = firstName ? doc.widthOfString(firstName + " ") : 0;
-    doc.font("Roboto-Bold").fontSize(nameSize);
-    const lastW = lastName ? doc.widthOfString(lastName) : 0;
-    const totalNameW = firstW + lastW;
-    const nameX = (PAGE_W - totalNameW) / 2;
-
-    doc.font("Roboto-Light").fontSize(nameSize).fillColor(rgb(GRAY))
-      .text(firstName + (lastName ? " " : ""), nameX, cy, { continued: !!lastName, lineBreak: false });
-    if (lastName) {
-      doc.font("Roboto-Bold").fontSize(nameSize).fillColor(rgb(DARKGRAY))
-        .text(lastName, { continued: false, lineBreak: false });
-    }
-    cy += nameSize * 1.2 + 4;
-
-    // Position/headline in accent colour, uppercase, spaced — 7.6pt small-caps look
-    const posLine = String(parsedCV?.headline || candidate.headline || "").toUpperCase();
-    if (posLine) {
-      doc.font("SSP-Bold").fontSize(7.6).fillColor(rgb(ACCENT))
-        .text(posLine, ML, cy, { width: W, align: "center", characterSpacing: 0.5 });
-      cy += 7.6 * 1.4 + 6;
-    }
-
-    // Divider
-    doc.moveTo(ML, cy).lineTo(PAGE_W - MR, cy)
-      .strokeColor(rgb(LIGHTGRAY)).lineWidth(0.5).stroke();
-    cy += 4;
-
-    // Contact row — email · phone · location · linkedin · github
-    const contactParts: string[] = [];
-    if (agencyEmail || parsedCV?.email) contactParts.push(String(parsedCV?.email || agencyEmail || ""));
-    if (candidate.primary_phone) contactParts.push(candidate.primary_phone);
-    if (candidate.location || parsedCV?.location) contactParts.push(String(candidate.location || parsedCV?.location || ""));
-    if (parsedCV?.linkedin) {
-      const li = String(parsedCV.linkedin).replace("https://www.linkedin.com/in/", "").replace("https://linkedin.com/in/", "").replace(/\/$/, "");
-      contactParts.push(`linkedin.com/in/${li}`);
-    }
-    if (parsedCV?.github) {
-      const gh = String(parsedCV.github).replace("https://github.com/", "").replace(/\/$/, "");
-      contactParts.push(`github.com/${gh}`);
-    }
-
-    if (contactParts.length) {
-      const contactLine = contactParts.filter(Boolean).join("  |  ");
-      doc.font("SSP").fontSize(9).fillColor(rgb(GRAY))
-        .text(contactLine, ML, cy, { width: W, align: "center" });
-      cy += 9 * 1.4 + 4;
-    }
-
-    // Divider
-    doc.moveTo(ML, cy).lineTo(PAGE_W - MR, cy)
-      .strokeColor(rgb(LIGHTGRAY)).lineWidth(0.5).stroke();
-    cy += 16;
-
-    // ── SECTION HELPER ─────────────────────────────────────────────────────
-    const section = (title: string) => {
-      checkPageBreak(30);
-      // Accent-coloured bold title left, then full rule to right
-      doc.font("SSP-Bold").fontSize(16).fillColor(rgb(ACCENT));
-      const titleW = doc.widthOfString(title);
-      doc.text(title, ML, cy, { lineBreak: false });
-      // Rule from after title to right margin
-      const ruleY = cy + 12;
-      doc.moveTo(ML + titleW + 8, ruleY).lineTo(PAGE_W - MR, ruleY)
-        .strokeColor(rgb(LIGHTGRAY)).lineWidth(0.4).stroke();
-      cy += 16 * 1.3 + 6;
+    // ── Section heading ──────────────────────────────────────────────────────
+    const sectionHead = (title: string) => {
+      needSpace(28);
+      cy += 4;
+      // Full-width background bar for heading
+      doc.rect(ML, cy, W, 16).fill(rgb(SECTION_FG));
+      doc.font("S-Bold").fontSize(8).fillColor([255,255,255])
+        .text(title.toUpperCase(), ML + 8, cy + 4, { width: W - 16, lineBreak: false, characterSpacing: 0.6 });
+      cy += 20;
     };
 
-    // ── SUMMARY ────────────────────────────────────────────────────────────
-    if (profile?.summary) {
-      section("Summary");
-      checkPageBreak(40);
-      doc.font("SSP").fontSize(9.5).fillColor(rgb(DARKTEXT))
-        .text(profile.summary, ML, cy, { width: W, align: "justify", lineGap: 2 });
-      cy = doc.y + 12;
+    // ── HEADER ───────────────────────────────────────────────────────────────
+    // Thin top accent bar
+    doc.rect(0, 0, PW, 4).fill(rgb(SECTION_FG));
+    cy = MT;
+
+    // Name
+    const nameSize = 28;
+    doc.font("R-Light").fontSize(nameSize);
+    const fw = firstName ? doc.widthOfString(firstName + " ") : 0;
+    doc.font("R-Bold").fontSize(nameSize);
+    const lw = lastName ? doc.widthOfString(lastName) : 0;
+    const nx = (PW - fw - lw) / 2;
+    doc.font("R-Light").fontSize(nameSize).fillColor(rgb(NAME_DARK))
+      .text(firstName + (lastName ? " " : ""), nx, cy, { continued: !!lastName, lineBreak: false });
+    if (lastName) doc.font("R-Bold").fontSize(nameSize).fillColor(rgb(NAME_DARK)).text(lastName, { lineBreak: false });
+    cy += nameSize * 1.3;
+
+    // Headline
+    const hl = String(parsedCV?.headline || candidate.headline || "").toUpperCase();
+    if (hl) {
+      doc.font("S-Bold").fontSize(7.5).fillColor(rgb(SECTION_FG))
+        .text(hl, ML, cy, { width: W, align: "center", characterSpacing: 0.8 });
+      cy += 7.5 * 1.5;
     }
 
-    // ── EXPERIENCE ─────────────────────────────────────────────────────────
+    // Thin divider
+    doc.moveTo(ML, cy).lineTo(PW - MR, cy).strokeColor(rgb(LIGHT_CLR)).lineWidth(0.4).stroke();
+    cy += 5;
+
+    // AGENCY contact row (not candidate personal info — this is for client sharing)
+    const contactParts: string[] = [];
+    if (agencyEmail)   contactParts.push(agencyEmail);
+    if (agencyPhone)   contactParts.push(agencyPhone);
+    if (agencyWebsite) contactParts.push(agencyWebsite);
+    // Candidate location only (not their personal email/phone)
+    const loc = String(candidate.location || parsedCV?.location || "");
+    if (loc) contactParts.push(loc);
+
+    if (contactParts.length) {
+      doc.font("S").fontSize(8.5).fillColor(rgb(DATE_CLR))
+        .text(contactParts.join("   ·   "), ML, cy, { width: W, align: "center" });
+      cy += 8.5 * 1.5;
+    }
+
+    doc.moveTo(ML, cy).lineTo(PW - MR, cy).strokeColor(rgb(LIGHT_CLR)).lineWidth(0.4).stroke();
+    cy += 12;
+
+    // Key stats row
+    const stats: string[] = [];
+    if (candidate.total_experience_years != null) stats.push(`${candidate.total_experience_years} yrs experience`);
+    if (parsedCV?.domain) stats.push(String(parsedCV.domain));
+    if (parsedCV?.seniority) stats.push(String(parsedCV.seniority).charAt(0).toUpperCase() + String(parsedCV.seniority).slice(1) + " level");
+    if (candidate.expected_rate) stats.push(`Expected: ${candidate.expected_rate} ${candidate.expected_rate_currency || ""}`.trim());
+    if (candidate.notice_period_days != null) {
+      stats.push(`Notice: ${candidate.notice_period_days === 0 ? "Immediate" : candidate.notice_period_days + " days"}`);
+    }
+    if (stats.length) {
+      doc.font("S").fontSize(8.5).fillColor(rgb(META_CLR))
+        .text(stats.join("   ·   "), ML, cy, { width: W, align: "center" });
+      cy += 8.5 * 1.5 + 4;
+    }
+
+    // ── SUMMARY ──────────────────────────────────────────────────────────────
+    if (profile?.summary) {
+      sectionHead("Professional Summary");
+      needSpace(30);
+      doc.font("S").fontSize(9.5).fillColor(rgb(BODY_CLR))
+        .text(profile.summary, ML, cy, { width: W, align: "justify", lineGap: 2 });
+      cy = doc.y + 10;
+    }
+
+    // ── EXPERIENCE ───────────────────────────────────────────────────────────
     if (roles.length > 0) {
-      section("Experience");
-
+      sectionHead("Professional Experience");
       for (const role of roles) {
-        checkPageBreak(35);
+        needSpace(32);
+        const dateStr = role.start_date ? `${role.start_date} – ${role.end_date || "Present"}` : "";
+        const titleY = cy;
 
-        const dateStr = role.start_date
-          ? `${role.start_date} – ${role.end_date || "Present"}`
-          : "";
-
-        // Row 1: Bold position left | date right in lightgray
-        doc.font("SSP-Bold").fontSize(11).fillColor(rgb(DARKTEXT))
-          .text(role.title, ML, cy, { lineBreak: false, width: W - 130 });
+        doc.font("S-Bold").fontSize(10.5).fillColor(rgb(BODY_CLR))
+          .text(role.title, ML, titleY, { width: W - 110, lineBreak: false });
         if (dateStr) {
-          doc.font("SSP").fontSize(8.5).fillColor(rgb(LIGHTGRAY))
-            .text(dateStr, ML + W - 130, cy, { width: 130, align: "right", lineBreak: false });
+          doc.font("S").fontSize(8).fillColor(rgb(DATE_CLR))
+            .text(dateStr, ML + W - 110, titleY, { width: 110, align: "right", lineBreak: false });
         }
-        cy += 11 * 1.3;
+        cy += 10.5 * 1.25;
 
-        // Row 2: Company · Location in accent color italic
-        const compLine = [role.company, role.location].filter(Boolean).join(", ");
-        doc.font("SSP-Italic").fontSize(9.5).fillColor(rgb(ACCENT))
-          .text(compLine, ML, cy, { width: W, lineBreak: false });
-        cy += 9.5 * 1.3 + 2;
+        const co = [role.company, role.location].filter(Boolean).join(" · ");
+        doc.font("S-Italic").fontSize(9.5).fillColor(rgb(META_CLR)).text(co, ML, cy, { width: W });
+        cy = doc.y + 2;
 
-        // Summary
         if (role.summary) {
-          checkPageBreak(20);
-          doc.font("SSP-Light").fontSize(9).fillColor(rgb(DARKTEXT))
-            .text(role.summary, ML + 8, cy, { width: W - 8, lineGap: 1.5, align: "justify" });
-          cy = doc.y + 3;
+          doc.font("S-Light").fontSize(9).fillColor(rgb(BODY_CLR))
+            .text(role.summary, ML + 6, cy, { width: W - 6, lineGap: 1.5, align: "justify" });
+          cy = doc.y + 2;
         }
-
-        // Achievements
-        if (role.achievements?.length) {
-          for (const ach of role.achievements) {
-            checkPageBreak(14);
-            // Bullet: accent colour filled circle
-            doc.circle(ML + 4, cy + 4.5, 1.5).fill(rgb(ACCENT));
-            doc.font("SSP").fontSize(9).fillColor(rgb(DARKTEXT))
-              .text(ach, ML + 12, cy, { width: W - 12, lineGap: 1.2 });
-            cy = doc.y + 2;
-          }
-        }
-
+        (role.achievements || []).forEach(ach => {
+          needSpace(12);
+          doc.circle(ML + 3.5, cy + 4, 1.8).fill(rgb(BULLET_CLR));
+          doc.font("S").fontSize(9).fillColor(rgb(BODY_CLR))
+            .text(ach, ML + 10, cy, { width: W - 10, lineGap: 1 });
+          cy = doc.y + 1;
+        });
         cy += 6;
       }
     }
 
-    // ── EDUCATION ──────────────────────────────────────────────────────────
-    if (education.length > 0) {
-      section("Education");
-
-      for (const edu of education) {
-        checkPageBreak(30);
-
-        const dateStr = edu.graduation_year || "";
-        const degreeStr = [edu.degree, edu.field].filter(Boolean).join(", ");
-
-        doc.font("SSP-Bold").fontSize(11).fillColor(rgb(DARKTEXT))
-          .text(edu.institution, ML, cy, { lineBreak: false, width: W - 100 });
-        if (dateStr) {
-          doc.font("SSP").fontSize(8.5).fillColor(rgb(LIGHTGRAY))
-            .text(dateStr, ML + W - 100, cy, { width: 100, align: "right", lineBreak: false });
+    // ── PROJECTS ─────────────────────────────────────────────────────────────
+    if (projects.length > 0) {
+      sectionHead("Projects");
+      for (const proj of projects) {
+        needSpace(25);
+        doc.font("S-Bold").fontSize(10.5).fillColor(rgb(BODY_CLR)).text(proj.name, ML, cy, { width: W - 130, lineBreak: false });
+        if (proj.url) {
+          doc.font("S").fontSize(7.5).fillColor(rgb(DATE_CLR))
+            .text(proj.url.replace(/^https?:\/\//, ""), ML + W - 130, cy, { width: 130, align: "right", lineBreak: false });
         }
-        cy += 11 * 1.3;
+        cy += 10.5 * 1.25;
+        if (proj.technologies?.length) {
+          doc.font("S-Italic").fontSize(9).fillColor(rgb(META_CLR))
+            .text(proj.technologies.join(", "), ML, cy, { width: W });
+          cy = doc.y + 1;
+        }
+        if (proj.description) {
+          doc.font("S").fontSize(9).fillColor(rgb(BODY_CLR)).text(proj.description, ML + 6, cy, { width: W - 6, lineGap: 1.3 });
+          cy = doc.y + 1;
+        }
+        (proj.highlights || []).forEach(h => {
+          needSpace(12);
+          doc.circle(ML + 3.5, cy + 4, 1.8).fill(rgb(BULLET_CLR));
+          doc.font("S").fontSize(9).fillColor(rgb(BODY_CLR)).text(h, ML + 10, cy, { width: W - 10, lineGap: 1 });
+          cy = doc.y + 1;
+        });
+        cy += 5;
+      }
+    }
 
-        if (degreeStr) {
-          doc.font("SSP-Italic").fontSize(9.5).fillColor(rgb(ACCENT))
-            .text(degreeStr, ML, cy, { width: W });
-          cy = doc.y + 2;
+    // ── EDUCATION ────────────────────────────────────────────────────────────
+    if (education.length > 0) {
+      sectionHead("Education");
+      for (const edu of education) {
+        needSpace(25);
+        const eY = cy;
+        doc.font("S-Bold").fontSize(10.5).fillColor(rgb(BODY_CLR)).text(edu.institution, ML, eY, { width: W - 80, lineBreak: false });
+        if (edu.graduation_year) {
+          doc.font("S").fontSize(8).fillColor(rgb(DATE_CLR)).text(edu.graduation_year, ML + W - 80, eY, { width: 80, align: "right", lineBreak: false });
+        }
+        cy += 10.5 * 1.25;
+        const deg = [edu.degree, edu.field].filter(Boolean).join(", ");
+        if (deg) {
+          doc.font("S-Italic").fontSize(9.5).fillColor(rgb(META_CLR)).text(deg, ML, cy, { width: W });
+          cy = doc.y + 1;
         }
         if (edu.grade) {
-          doc.font("SSP-Light").fontSize(9).fillColor(rgb(LIGHTGRAY))
-            .text(`Grade: ${edu.grade}`, ML, cy, { width: W });
-          cy = doc.y + 2;
+          doc.font("S").fontSize(8.5).fillColor(rgb(DATE_CLR)).text(`Grade: ${edu.grade}`, ML, cy, { width: W });
+          cy = doc.y + 1;
         }
-        cy += 6;
+        cy += 5;
       }
     }
 
-    // ── SKILLS ─────────────────────────────────────────────────────────────
+    // ── SKILLS ───────────────────────────────────────────────────────────────
     if (skills.length > 0) {
-      section("Skills");
-      checkPageBreak(30);
-
-      // Group by category if available
-      type SkillEntry = { skill: string; years?: number; proficiency?: string; category?: string };
-      const grouped: Record<string, SkillEntry[]> = {};
-      for (const s of skills as SkillEntry[]) {
-        const cat = s.category || "other";
+      sectionHead("Skills");
+      needSpace(20);
+      const grouped: Record<string, string[]> = {};
+      type SE = { skill: string; years?: number; category?: string };
+      for (const s of skills as SE[]) {
+        const cat = s.category || "technical";
         if (!grouped[cat]) grouped[cat] = [];
-        grouped[cat].push(s);
+        grouped[cat].push(s.skill + (s.years ? ` (${s.years}y)` : ""));
       }
-
-      const catOrder = ["technical", "framework", "tool", "language", "domain", "soft", "other"];
-      const cats = catOrder.filter((c) => grouped[c]);
+      const catOrder = ["technical","framework","tool","language","domain","soft","other"];
+      const cats = catOrder.filter(c => grouped[c]);
 
       if (cats.length > 1) {
-        // Two-column layout
-        const colW = (W - 20) / 2;
-        let col = 0;
-        let rowStartY = cy;
-        let col2Y = cy;
-
-        for (let i = 0; i < cats.length; i++) {
-          const cat = cats[i];
-          const x = col === 0 ? ML : ML + colW + 20;
-          const refY = col === 0 ? rowStartY : col2Y;
-
-          checkPageBreak(20);
-          doc.font("SSP-Bold").fontSize(8.5).fillColor(rgb(GRAY))
-            .text(cat.charAt(0).toUpperCase() + cat.slice(1), x, refY, { width: colW, lineBreak: false });
-          let skillY = refY + 8.5 * 1.3;
-
-          const skillLine = grouped[cat].map((s) => s.skill + (s.years ? ` (${s.years}y)` : "")).join("  ·  ");
-          doc.font("SSP").fontSize(8.5).fillColor(rgb(DARKTEXT))
-            .text(skillLine, x, skillY, { width: colW, lineGap: 1 });
-          const afterY = doc.y + 6;
-
-          if (col === 0) {
-            rowStartY = refY;
-            col2Y = refY;
-            col = 1;
-          } else {
-            const maxY = Math.max(afterY, doc.y + 6);
-            cy = Math.max(rowStartY + doc.heightOfString(grouped[cats[i - 1]].map((s) => s.skill).join(" · "), { width: colW, fontSize: 8.5 }) + 30, afterY, skillY + 30);
-            col = 0;
-          }
+        const cW = (W - 16) / 2;
+        for (let i = 0; i < cats.length; i += 2) {
+          needSpace(18);
+          const rowY = cy;
+          const drawCat = (cat: string, x: number) => {
+            doc.font("S-Bold").fontSize(8.5).fillColor(rgb(META_CLR))
+              .text(cat.charAt(0).toUpperCase() + cat.slice(1) + ":", x, rowY, { width: cW, lineBreak: false });
+            doc.font("S").fontSize(8.5).fillColor(rgb(BODY_CLR))
+              .text(grouped[cat].join(", "), x, rowY + 11, { width: cW, lineGap: 1 });
+          };
+          drawCat(cats[i], ML);
+          if (cats[i+1]) drawCat(cats[i+1], ML + cW + 16);
+          const h1 = doc.heightOfString(grouped[cats[i]].join(", "), { width: cW, fontSize: 8.5 });
+          const h2 = cats[i+1] ? doc.heightOfString(grouped[cats[i+1]].join(", "), { width: cW, fontSize: 8.5 }) : 0;
+          cy = rowY + 11 + Math.max(h1, h2) + 8;
         }
-        // Flush last unpaired column
-        if (col === 1) cy = col2Y + 30;
       } else {
-        // Single line
-        const skillLine = skills.map((s) => `${s.skill}${s.years ? ` (${s.years}y)` : ""}`).join("  ·  ");
-        doc.font("SSP").fontSize(9).fillColor(rgb(DARKTEXT))
-          .text(skillLine, ML, cy, { width: W, lineGap: 2 });
-        cy = doc.y + 10;
+        doc.font("S").fontSize(9).fillColor(rgb(BODY_CLR))
+          .text(skills.map((s: SE) => `${s.skill}${s.years ? ` (${s.years}y)` : ""}`).join("   ·   "), ML, cy, { width: W, lineGap: 2 });
+        cy = doc.y + 8;
       }
     }
 
-    // ── CERTIFICATIONS ─────────────────────────────────────────────────────
+    // ── CERTIFICATIONS ───────────────────────────────────────────────────────
     if (certifications.length > 0) {
-      section("Certifications");
+      sectionHead("Certifications");
       for (const cert of certifications) {
-        checkPageBreak(20);
-        doc.font("SSP-Bold").fontSize(10).fillColor(rgb(DARKTEXT))
-          .text(cert.name, ML, cy, { lineBreak: false, width: W - 80 });
+        needSpace(18);
+        const cY = cy;
+        doc.font("S-Bold").fontSize(10).fillColor(rgb(BODY_CLR)).text(cert.name, ML, cY, { width: W - 60, lineBreak: false });
         if (cert.year) {
-          doc.font("SSP").fontSize(8.5).fillColor(rgb(LIGHTGRAY))
-            .text(cert.year, ML + W - 80, cy, { width: 80, align: "right", lineBreak: false });
+          doc.font("S").fontSize(8).fillColor(rgb(DATE_CLR)).text(cert.year, ML + W - 60, cY, { width: 60, align: "right", lineBreak: false });
         }
-        cy += 10 * 1.3;
+        cy += 10 * 1.25;
         if (cert.issuer) {
-          doc.font("SSP-Italic").fontSize(9).fillColor(rgb(ACCENT))
-            .text(cert.issuer, ML, cy, { width: W });
-          cy = doc.y + 2;
+          doc.font("S-Italic").fontSize(9).fillColor(rgb(META_CLR)).text(cert.issuer, ML, cy, { width: W });
+          cy = doc.y + 1;
         }
         cy += 4;
       }
     }
 
-    // ── LANGUAGES ──────────────────────────────────────────────────────────
-    if (languages.length > 0) {
-      section("Languages");
-      checkPageBreak(20);
-      const langLine = languages.map((l) => `${l.language}${l.proficiency ? ` (${l.proficiency})` : ""}`).join("   ·   ");
-      doc.font("SSP").fontSize(9).fillColor(rgb(DARKTEXT))
-        .text(langLine, ML, cy, { width: W });
-      cy = doc.y + 10;
+    // ── AWARDS ───────────────────────────────────────────────────────────────
+    if (awards.length > 0) {
+      sectionHead("Awards & Honors");
+      for (const a of awards) {
+        needSpace(18);
+        const aY = cy;
+        doc.font("S-Bold").fontSize(10).fillColor(rgb(BODY_CLR)).text(a.title, ML, aY, { width: W - 60, lineBreak: false });
+        if (a.year) doc.font("S").fontSize(8).fillColor(rgb(DATE_CLR)).text(a.year, ML + W - 60, aY, { width: 60, align: "right", lineBreak: false });
+        cy += 10 * 1.25;
+        if (a.issuer) { doc.font("S-Italic").fontSize(9).fillColor(rgb(META_CLR)).text(a.issuer, ML, cy, { width: W }); cy = doc.y + 1; }
+        if (a.description) { doc.font("S").fontSize(9).fillColor(rgb(BODY_CLR)).text(a.description, ML, cy, { width: W }); cy = doc.y + 1; }
+        cy += 4;
+      }
     }
 
-    // ── FOOTER on every page ───────────────────────────────────────────────
-    const totalPages = doc.bufferedPageRange().count;
-    for (let p = 0; p < totalPages; p++) {
-      doc.switchToPage(p);
-      const footerY = PAGE_H - 28;
-      doc.moveTo(ML, footerY).lineTo(PAGE_W - MR, footerY)
-        .strokeColor(rgb(LIGHTGRAY)).lineWidth(0.4).stroke();
+    // ── PUBLICATIONS ─────────────────────────────────────────────────────────
+    if (publications.length > 0) {
+      sectionHead("Publications");
+      for (const pub of publications) {
+        needSpace(18);
+        const pY = cy;
+        doc.font("S-Bold").fontSize(10).fillColor(rgb(BODY_CLR)).text(pub.title, ML, pY, { width: W - 60, lineBreak: false });
+        if (pub.year) doc.font("S").fontSize(8).fillColor(rgb(DATE_CLR)).text(pub.year, ML + W - 60, pY, { width: 60, align: "right", lineBreak: false });
+        cy += 10 * 1.25;
+        if (pub.publisher) { doc.font("S-Italic").fontSize(9).fillColor(rgb(META_CLR)).text(pub.publisher, ML, cy, { width: W }); cy = doc.y + 1; }
+        cy += 4;
+      }
+    }
 
+    // ── LANGUAGES ────────────────────────────────────────────────────────────
+    if (languages.length > 0) {
+      sectionHead("Languages");
+      needSpace(16);
+      doc.font("S").fontSize(9.5).fillColor(rgb(BODY_CLR))
+        .text(languages.map(l => `${l.language}${l.proficiency ? ` (${l.proficiency})` : ""}`).join("   ·   "), ML, cy, { width: W });
+      cy = doc.y + 8;
+    }
+
+    // ── FOOTER on every page ─────────────────────────────────────────────────
+    const total = doc.bufferedPageRange().count;
+    for (let p = 0; p < total; p++) {
+      doc.switchToPage(p);
+      const fY = doc.page.height - 32;
+      // Bottom accent bar
+      doc.rect(0, doc.page.height - 4, PW, 4).fill(rgb(SECTION_FG));
+      doc.moveTo(ML, fY).lineTo(PW - MR, fY).strokeColor(rgb(LIGHT_CLR)).lineWidth(0.4).stroke();
       const footerLeft = [agencyEmail, agencyPhone, agencyWebsite].filter(Boolean).join("  ·  ");
-      const footerRight = agencyName;
-      doc.font("SSP").fontSize(7.5).fillColor(rgb(LIGHTGRAY))
-        .text(footerLeft, ML, footerY + 5, { width: W / 2, lineBreak: false });
-      if (footerRight) {
-        doc.font("SSP-Bold").fontSize(7.5).fillColor(rgb(ACCENT))
-          .text(footerRight, ML + W / 2, footerY + 5, { width: W / 2, align: "right" });
+      const footerRight = agencyName + (agencyTagline ? ` — ${agencyTagline}` : "");
+      doc.font("S").fontSize(7).fillColor(rgb(LIGHT_CLR)).text(footerLeft, ML, fY + 5, { width: W * 0.55, lineBreak: false });
+      if (footerRight.trim()) {
+        doc.font("S-Bold").fontSize(7).fillColor(rgb(SECTION_FG))
+          .text(footerRight, ML + W * 0.55, fY + 5, { width: W * 0.45, align: "right" });
       }
     }
 

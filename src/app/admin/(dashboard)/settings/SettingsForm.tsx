@@ -1,12 +1,18 @@
 "use client";
 import { useState } from "react";
-import { Loader2, CheckCircle, Shield, User, List } from "lucide-react";
+import { Loader2, CheckCircle, Shield, User, List, Building2 } from "lucide-react";
 
 interface UserData { id: string; email: string; name: string; role: string; totp_enabled: boolean; }
+interface AgencyData { agency_name: string; agency_tagline: string; agency_email: string; agency_phone: string; agency_website: string; agency_address: string; }
 
-export function SettingsForm({ user, suppressedCount }: { user: UserData; suppressedCount: number }) {
+export function SettingsForm({ user, suppressedCount, agency: initialAgency }: {
+  user: UserData;
+  suppressedCount: number;
+  agency: AgencyData;
+}) {
   const tabs = [
-    { id: "profile", label: "Profile", icon: User },
+    { id: "profile",  label: "Profile",  icon: User },
+    { id: "agency",   label: "Agency",   icon: Building2 },
     { id: "security", label: "Security", icon: Shield },
     { id: "suppression", label: "Suppression", icon: List },
   ] as const;
@@ -16,6 +22,23 @@ export function SettingsForm({ user, suppressedCount }: { user: UserData; suppre
   const [name, setName] = useState(user.name);
   const [saving, setSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  // Agency
+  const [agency, setAgency] = useState<AgencyData>(initialAgency);
+  const [agencySaving, setAgencySaving] = useState(false);
+  const [agencyMsg, setAgencyMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  async function saveAgency() {
+    setAgencySaving(true); setAgencyMsg(null);
+    const res = await fetch("/api/admin/settings/agency", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(agency),
+    });
+    const d = await res.json();
+    setAgencyMsg(res.ok ? { type: "ok", text: "Agency settings saved" } : { type: "err", text: d.error || "Failed" });
+    setAgencySaving(false);
+  }
 
   const [totpData, setTotpData] = useState<{ qrCode: string; secret: string } | null>(null);
   const [totpCode, setTotpCode] = useState("");
@@ -106,6 +129,33 @@ export function SettingsForm({ user, suppressedCount }: { user: UserData; suppre
           )}
           <button onClick={saveProfile} disabled={saving} className="btn btn-primary">
             {saving ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Saving…</span></> : "Save changes"}
+          </button>
+        </div>
+      )}
+
+      {/* Agency tab */}
+      {tab === "agency" && (
+        <div className="card p-6 space-y-5">
+          <div>
+            <h2 className="font-display font-semibold text-text-light mb-1">Agency Details</h2>
+            <p className="text-sm text-text-dim">These details appear on client-facing CVs and profile PDFs.</p>
+          </div>
+          {(["agency_name", "agency_tagline", "agency_email", "agency_phone", "agency_website", "agency_address"] as const).map((key) => (
+            <div key={key}>
+              <label className="form-label capitalize">{key.replace("agency_", "").replace(/_/g, " ")}</label>
+              <input
+                value={agency[key]}
+                onChange={(e) => setAgency((p) => ({ ...p, [key]: e.target.value }))}
+                placeholder={key === "agency_email" ? "contact@example.com" : key === "agency_phone" ? "+91 XXXXX XXXXX" : ""}
+                className="input-base"
+              />
+            </div>
+          ))}
+          {agencyMsg && (
+            <p className={`text-sm ${agencyMsg.type === "ok" ? "text-emerald-400" : "text-red-400"}`}>{agencyMsg.text}</p>
+          )}
+          <button onClick={saveAgency} disabled={agencySaving} className="btn btn-primary">
+            {agencySaving ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Saving…</span></> : "Save agency settings"}
           </button>
         </div>
       )}

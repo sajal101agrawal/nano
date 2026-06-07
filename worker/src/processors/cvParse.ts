@@ -110,36 +110,23 @@ async function parseCVWithAI(rawText: string, confidence: number) {
   // Use tool_use to guarantee structured JSON — eliminates all parse failures
   const extractTool = {
     name: "extract_cv",
-    description: "Extract all structured information from a CV or resume",
+    description: "Extract all structured information from a CV or resume. Extract EVERY section present in the document.",
     input_schema: {
       type: "object" as const,
       properties: {
-        full_name: { type: "string", description: "Candidate's full name as written on CV" },
-        email: { type: "string", description: "Primary email address" },
-        phone: { type: "string", description: "Primary phone number with country code" },
-        linkedin: { type: "string", description: "Full LinkedIn profile URL" },
-        github: { type: "string", description: "Full GitHub profile URL" },
+        full_name: { type: "string" },
+        email: { type: "string" },
+        phone: { type: "string", description: "Primary phone with country code" },
+        linkedin: { type: "string", description: "Full LinkedIn URL" },
+        github: { type: "string", description: "Full GitHub URL" },
         portfolio: { type: "string", description: "Personal website or portfolio URL" },
-        location: { type: "string", description: "City, State/Country. E.g. 'Bangalore, India'" },
-        current_title: { type: "string", description: "Most recent job title" },
-        current_company: { type: "string", description: "Most recent employer name" },
-        total_experience_years: {
-          type: "number",
-          description: "Total years of professional experience. Calculate by summing non-overlapping role durations if not stated explicitly. Round to 1 decimal."
-        },
-        headline: {
-          type: "string",
-          description: "Single punchy line for recruiter use. E.g. 'Senior Full-Stack Engineer with 8 years in fintech'"
-        },
-        domain: {
-          type: "string",
-          description: "Primary specialization. E.g. 'Full-Stack Web Development', 'Data Science & ML', 'DevOps & Cloud'"
-        },
-        seniority: {
-          type: "string",
-          enum: ["intern", "junior", "mid", "senior", "lead", "principal", "executive"],
-          description: "Infer from job titles and experience years"
-        },
+        location: { type: "string", description: "City, Country e.g. 'Bangalore, India'" },
+        current_title: { type: "string" },
+        current_company: { type: "string" },
+        total_experience_years: { type: "number", description: "Total professional years. Calculate from role dates if not stated." },
+        headline: { type: "string", description: "Single recruiter-facing line e.g. 'Senior Full-Stack Engineer · 8 yrs · Fintech'" },
+        domain: { type: "string", description: "Primary specialization e.g. 'Full-Stack Web Development'" },
+        seniority: { type: "string", enum: ["intern","junior","mid","senior","lead","principal","executive"] },
         roles: {
           type: "array",
           items: {
@@ -148,18 +135,32 @@ async function parseCVWithAI(rawText: string, confidence: number) {
               title: { type: "string" },
               company: { type: "string" },
               location: { type: "string" },
-              start_date: { type: "string", description: "YYYY-MM format preferred, or original text" },
-              end_date: { type: "string", description: "YYYY-MM format preferred, null if current role" },
+              start_date: { type: "string", description: "YYYY-MM preferred" },
+              end_date: { type: "string" },
               is_current: { type: "boolean" },
-              duration_months: { type: "number", description: "Calculated duration in months" },
-              summary: { type: "string", description: "1-2 sentence role description" },
-              achievements: {
-                type: "array",
-                items: { type: "string" },
-                description: "Specific, measurable achievements. E.g. 'Reduced API latency by 40% through caching'"
-              }
+              duration_months: { type: "number" },
+              summary: { type: "string", description: "1-2 sentence role overview" },
+              achievements: { type: "array", items: { type: "string" }, description: "Measurable accomplishments e.g. 'Reduced latency by 40%'" }
             },
             required: ["title", "company", "is_current"]
+          }
+        },
+        projects: {
+          type: "array",
+          description: "Personal projects, side projects, open source contributions, freelance work",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              description: { type: "string" },
+              technologies: { type: "array", items: { type: "string" } },
+              url: { type: "string" },
+              start_date: { type: "string" },
+              end_date: { type: "string" },
+              highlights: { type: "array", items: { type: "string" } },
+              is_open_source: { type: "boolean" }
+            },
+            required: ["name"]
           }
         },
         education: {
@@ -168,10 +169,10 @@ async function parseCVWithAI(rawText: string, confidence: number) {
             type: "object",
             properties: {
               institution: { type: "string" },
-              degree: { type: "string", description: "E.g. 'B.Tech', 'M.S.', 'MBA'" },
-              field: { type: "string", description: "E.g. 'Computer Science', 'Finance'" },
+              degree: { type: "string" },
+              field: { type: "string" },
               graduation_year: { type: "string" },
-              grade: { type: "string", description: "GPA, percentage, or grade if mentioned" }
+              grade: { type: "string" }
             },
             required: ["institution"]
           }
@@ -181,17 +182,10 @@ async function parseCVWithAI(rawText: string, confidence: number) {
           items: {
             type: "object",
             properties: {
-              skill: { type: "string", description: "Canonical skill name. Normalize: 'JS'→'JavaScript', 'k8s'→'Kubernetes', 'ML'→'Machine Learning'" },
-              years: { type: "number", description: "Estimated years of experience with this skill" },
-              proficiency: {
-                type: "string",
-                enum: ["beginner", "intermediate", "advanced", "expert"],
-                description: "Infer: <1yr=beginner, 1-2yr=intermediate, 2-5yr=advanced, 5+yr=expert"
-              },
-              category: {
-                type: "string",
-                enum: ["technical", "framework", "tool", "language", "soft", "domain"]
-              }
+              skill: { type: "string", description: "Canonical name: 'JS'→'JavaScript', 'k8s'→'Kubernetes'" },
+              years: { type: "number" },
+              proficiency: { type: "string", enum: ["beginner","intermediate","advanced","expert"] },
+              category: { type: "string", enum: ["technical","framework","tool","language","soft","domain"] }
             },
             required: ["skill"]
           }
@@ -200,12 +194,35 @@ async function parseCVWithAI(rawText: string, confidence: number) {
           type: "array",
           items: {
             type: "object",
-            properties: {
-              name: { type: "string" },
-              issuer: { type: "string" },
-              year: { type: "string" }
-            },
+            properties: { name: { type: "string" }, issuer: { type: "string" }, year: { type: "string" } },
             required: ["name"]
+          }
+        },
+        awards: {
+          type: "array",
+          description: "Awards, honors, recognitions, hackathon wins",
+          items: {
+            type: "object",
+            properties: { title: { type: "string" }, issuer: { type: "string" }, year: { type: "string" }, description: { type: "string" } },
+            required: ["title"]
+          }
+        },
+        publications: {
+          type: "array",
+          description: "Research papers, blog posts, articles, patents",
+          items: {
+            type: "object",
+            properties: { title: { type: "string" }, publisher: { type: "string" }, year: { type: "string" }, url: { type: "string" }, description: { type: "string" } },
+            required: ["title"]
+          }
+        },
+        volunteer: {
+          type: "array",
+          description: "Volunteer work, community involvement",
+          items: {
+            type: "object",
+            properties: { role: { type: "string" }, organization: { type: "string" }, start_date: { type: "string" }, end_date: { type: "string" }, description: { type: "string" } },
+            required: ["role", "organization"]
           }
         },
         languages: {
@@ -214,15 +231,12 @@ async function parseCVWithAI(rawText: string, confidence: number) {
             type: "object",
             properties: {
               language: { type: "string" },
-              proficiency: {
-                type: "string",
-                enum: ["native", "fluent", "professional", "conversational", "basic"]
-              }
+              proficiency: { type: "string", enum: ["native","fluent","professional","conversational","basic"] }
             },
             required: ["language"]
           }
         },
-        raw_text_confidence: { type: "number", description: "Text extraction quality: 0.0-1.0" }
+        raw_text_confidence: { type: "number", description: "Text extraction quality 0-1" }
       },
       required: ["full_name", "roles", "education", "skills"]
     }
@@ -235,7 +249,7 @@ async function parseCVWithAI(rawText: string, confidence: number) {
     tool_choice: { type: "tool", name: "extract_cv" },
     messages: [{
       role: "user",
-      content: `Extract all information from this CV. Be thorough and accurate. Normalize all skill names to canonical forms. Calculate experience durations precisely. Confidence value for text extraction is ${confidence}.
+      content: `Extract ALL information from this CV. Be exhaustive — capture every section present including projects, awards, publications, volunteer work, certifications, and any other sections. Normalize all skill names to canonical forms. Calculate experience durations precisely. Confidence value for text extraction is ${confidence}.
 
 CV TEXT:
 ${rawText.slice(0, 15000)}`

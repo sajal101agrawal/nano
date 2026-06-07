@@ -78,8 +78,12 @@ export interface ParsedCV {
   roles: Role[];
   education: Education[];
   skills: Skill[];
+  projects?: Project[];
   certifications?: Certification[];
   languages?: SpokenLanguage[];
+  awards?: Award[];
+  publications?: Publication[];
+  volunteer?: VolunteerWork[];
   raw_text_confidence?: number;
 }
 
@@ -93,6 +97,17 @@ export interface Role {
   duration_months?: number;
   summary?: string;
   achievements?: string[];
+}
+
+export interface Project {
+  name: string;
+  description?: string;
+  technologies?: string[];
+  url?: string;
+  start_date?: string;
+  end_date?: string;
+  highlights?: string[];
+  is_open_source?: boolean;
 }
 
 export interface Education {
@@ -119,6 +134,29 @@ export interface Certification {
 export interface SpokenLanguage {
   language: string;
   proficiency?: "native" | "fluent" | "professional" | "conversational" | "basic";
+}
+
+export interface Award {
+  title: string;
+  issuer?: string;
+  year?: string;
+  description?: string;
+}
+
+export interface Publication {
+  title: string;
+  publisher?: string;
+  year?: string;
+  url?: string;
+  description?: string;
+}
+
+export interface VolunteerWork {
+  role: string;
+  organization: string;
+  start_date?: string;
+  end_date?: string;
+  description?: string;
 }
 
 export interface CandidateSkill {

@@ -24,6 +24,10 @@ import type {
   Education,
   Certification,
   SpokenLanguage,
+  Project,
+  Award,
+  Publication,
+  VolunteerWork,
   MessageStatus,
 } from "@/types";
 
@@ -125,6 +129,10 @@ export default async function CandidateDetailPage({
   const education = parsedCV?.education || [];
   const certifications = parsedCV?.certifications || [];
   const languages = parsedCV?.languages || [];
+  const projects: Project[] = parsedCV?.projects || [];
+  const awards: Award[] = parsedCV?.awards || [];
+  const publications: Publication[] = parsedCV?.publications || [];
+  const volunteer: VolunteerWork[] = parsedCV?.volunteer || [];
   const hasCv = !!profile?.raw_cv_url;
   const parseAlert =
     profile?.parse_status === "failed" ||
@@ -346,6 +354,143 @@ export default async function CandidateDetailPage({
                         {[cert.issuer, cert.year].filter(Boolean).join(" · ")}
                       </p>
                     )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Projects */}
+          {projects.length > 0 && (
+            <section>
+              <h2 className="text-sm font-semibold text-text-light mb-4 flex items-center gap-2">
+                <svg className="w-4 h-4 text-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                </svg>
+                Projects
+              </h2>
+              <div className="space-y-3">
+                {projects.map((proj, i) => (
+                  <div key={i} className="bg-bg-secondary border border-border rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-text-light">{proj.name}</p>
+                          {proj.is_open_source && <span className="badge badge-green text-xs">Open Source</span>}
+                          {proj.url && (
+                            <a href={proj.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline truncate max-w-[160px]">
+                              {proj.url.replace(/^https?:\/\//, "")}
+                            </a>
+                          )}
+                        </div>
+                        {proj.description && <p className="text-xs text-text-dim mt-1 leading-relaxed">{proj.description}</p>}
+                      </div>
+                      {(proj.start_date || proj.end_date) && (
+                        <span className="text-xs text-text-dim shrink-0">
+                          {proj.start_date}{proj.end_date ? ` – ${proj.end_date}` : proj.start_date ? " – Present" : ""}
+                        </span>
+                      )}
+                    </div>
+                    {proj.technologies && proj.technologies.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {proj.technologies.map((t, ti) => (
+                          <span key={ti} className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">{t}</span>
+                        ))}
+                      </div>
+                    )}
+                    {proj.highlights && proj.highlights.length > 0 && (
+                      <ul className="mt-2 space-y-0.5">
+                        {proj.highlights.map((h, hi) => (
+                          <li key={hi} className="text-xs text-text-dim flex gap-2">
+                            <span className="text-primary/60 shrink-0">▸</span><span>{h}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Awards */}
+          {awards.length > 0 && (
+            <section>
+              <h2 className="text-sm font-semibold text-text-light mb-4 flex items-center gap-2">
+                <svg className="w-4 h-4 text-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                </svg>
+                Awards & Honors
+              </h2>
+              <div className="space-y-2">
+                {awards.map((a, i) => (
+                  <div key={i} className="bg-bg-secondary border border-border rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-text-light">{a.title}</p>
+                        {a.issuer && <p className="text-xs text-text-dim mt-0.5">{a.issuer}</p>}
+                        {a.description && <p className="text-xs text-text-dim mt-1">{a.description}</p>}
+                      </div>
+                      {a.year && <span className="text-xs text-text-dim shrink-0">{a.year}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Publications */}
+          {publications.length > 0 && (
+            <section>
+              <h2 className="text-sm font-semibold text-text-light mb-4 flex items-center gap-2">
+                <svg className="w-4 h-4 text-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                Publications
+              </h2>
+              <div className="space-y-2">
+                {publications.map((pub, i) => (
+                  <div key={i} className="bg-bg-secondary border border-border rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-text-light">
+                          {pub.url ? <a href={pub.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">{pub.title}</a> : pub.title}
+                        </p>
+                        {pub.publisher && <p className="text-xs text-text-dim mt-0.5">{pub.publisher}</p>}
+                        {pub.description && <p className="text-xs text-text-dim mt-1">{pub.description}</p>}
+                      </div>
+                      {pub.year && <span className="text-xs text-text-dim shrink-0">{pub.year}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Volunteer */}
+          {volunteer.length > 0 && (
+            <section>
+              <h2 className="text-sm font-semibold text-text-light mb-4 flex items-center gap-2">
+                <svg className="w-4 h-4 text-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                </svg>
+                Volunteer Work
+              </h2>
+              <div className="space-y-2">
+                {volunteer.map((v, i) => (
+                  <div key={i} className="bg-bg-secondary border border-border rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-text-light">{v.role}</p>
+                        <p className="text-xs text-text-dim mt-0.5">{v.organization}</p>
+                        {v.description && <p className="text-xs text-text-dim mt-1">{v.description}</p>}
+                      </div>
+                      {(v.start_date || v.end_date) && (
+                        <span className="text-xs text-text-dim shrink-0">
+                          {v.start_date}{v.end_date ? ` – ${v.end_date}` : v.start_date ? " – Present" : ""}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
