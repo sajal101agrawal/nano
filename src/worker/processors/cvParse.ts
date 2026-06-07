@@ -1,16 +1,13 @@
 import "dotenv/config";
-import { Job, Queue } from "bullmq";
+import { Job, Queue, ConnectionOptions } from "bullmq";
 import { Pool } from "pg";
 import { v4 as uuidv4 } from "uuid";
 import pdf from "pdf-parse";
 import mammoth from "mammoth";
+import { getRedisConnection } from "../redis";
 
-const matchQueueConn = {
-  host: new URL(process.env.REDIS_URL || "redis://localhost:6379").hostname,
-  port: parseInt(new URL(process.env.REDIS_URL || "redis://localhost:6379").port || "6379"),
-};
 const matchQueue = new Queue("match", {
-  connection: matchQueueConn,
+  connection: getRedisConnection(),
   defaultJobOptions: { attempts: 2, backoff: { type: "fixed", delay: 5000 } },
 });
 
