@@ -1,13 +1,18 @@
 import "dotenv/config";
 import { Job } from "bullmq";
 import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-const TRANSACTIONAL_FROM = `${process.env.EMAIL_FROM_NAME || "Nano"} <${process.env.EMAIL_FROM_TRANSACTIONAL || "noreply@sajaltech.com"}>`;
-const OUTREACH_FROM = `${process.env.EMAIL_FROM_NAME || "Nano"} <${process.env.EMAIL_FROM_OUTREACH || "talent@mail.sajaltech.com"}>`;
-const REPLY_TO = process.env.EMAIL_REPLY_TO || "contact@sajaltech.com";
 import { Pool } from "pg";
+
+let _resend: Resend | null = null;
+function getResend(): Resend {
+  if (!_resend) {
+    const key = process.env.RESEND_API_KEY;
+    if (!key) throw new Error("RESEND_API_KEY env var is not set");
+    _resend = new Resend(key);
+  }
+  return _resend;
+}
+
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 
 async function dbQuery<T = Record<string, unknown>>(
@@ -26,9 +31,13 @@ async function dbQuery<T = Record<string, unknown>>(
 export async function emailProcessor(job: Job): Promise<void> {
   const { messageId, to, subject, html, stream, threadId, tags, cc, attachments } = job.data;
 
+  const TRANSACTIONAL_FROM = `${process.env.EMAIL_FROM_NAME || "Nano"} <${process.env.EMAIL_FROM_TRANSACTIONAL || "noreply@sajaltech.com"}>`;
+  const OUTREACH_FROM = `${process.env.EMAIL_FROM_NAME || "Nano"} <${process.env.EMAIL_FROM_OUTREACH || "talent@mail.sajaltech.com"}>`;
+  const REPLY_TO = process.env.EMAIL_REPLY_TO || "contact@sajaltech.com";
+
   const from = stream === "transactional" ? TRANSACTIONAL_FROM : OUTREACH_FROM;
 
-  const result = await resend.emails.send({
+  const result = await getResend().emails.send({
     from,
     to,
     cc: cc?.length ? cc : undefined,
