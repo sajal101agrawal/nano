@@ -265,7 +265,7 @@ This is then cast to the `vector` type with `$1::vector` in SQL.
 
 ### Changing the vector/rule score weights
 
-In `worker/src/processors/match.ts`:
+In `src/worker/processors/match.ts`:
 
 ```typescript
 const combinedScore = (c.vector_score * 0.6 + ruleScore * 0.4) * 100;

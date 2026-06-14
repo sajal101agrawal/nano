@@ -333,6 +333,20 @@ Stores candidate answers to requirement-specific screening questions.
 
 ---
 
+### `app_settings`
+
+Agency branding key-value store used for client-ready CV generation.
+
+| Column | Type | Notes |
+|---|---|---|
+| `key` | TEXT PK | Setting name |
+| `value` | TEXT NOT NULL | Setting value |
+| `updated_at` | TIMESTAMPTZ NOT NULL | |
+
+Default keys (seeded by migration 004): `agency_name`, `agency_tagline`, `agency_email`, `agency_phone`, `agency_website`, `agency_address`.
+
+---
+
 ### `draft_applications`
 
 Partial applications where the candidate uploaded a CV but did not complete submission. Used to enable resumable applications and abandonment reminders.
@@ -353,7 +367,7 @@ Partial applications where the candidate uploaded a CV but did not complete subm
 | `candidate_email` | TEXT | User-entered |
 | `candidate_phone` | TEXT | User-entered |
 | `preferences` | JSONB | Saved work preferences |
-| `step` | TEXT NOT NULL DEFAULT `upload` | Current step: `upload`, `details`, `preferences` |
+| `step` | TEXT NOT NULL DEFAULT `upload` | Current step: `upload`, `details`, `preferences`, `questions` |
 | `status` | TEXT NOT NULL DEFAULT `draft` | `draft`, `completed`, `expired` |
 | `reminder_sent_15m` | BOOLEAN NOT NULL DEFAULT FALSE | |
 | `reminder_sent_6h` | BOOLEAN NOT NULL DEFAULT FALSE | |
@@ -402,6 +416,9 @@ Pre-computed AI match scores between requirements and candidates from the entire
 | `vector_score` | NUMERIC(5,4) | Raw cosine similarity 0–1 |
 | `rule_score` | NUMERIC(5,4) | Rule adjustment factor 0–1 |
 | `rationale` | TEXT | Claude explanation or fallback text |
+| `is_manual` | BOOLEAN NOT NULL DEFAULT FALSE | True when recruiter manually added to shortlist |
+| `manually_added_at` | TIMESTAMPTZ | When manually shortlisted |
+| `manually_added_by` | UUID | FK → `users(id)` — admin who added |
 | `generated_at` | TIMESTAMPTZ NOT NULL | |
 
 Unique constraint on `(requirement_id, candidate_id)` — upserted on each match run.
@@ -646,4 +663,5 @@ clients ────────────── recruiters
    suppression_list
    otp_tokens
    draft_applications
+   app_settings
 ```

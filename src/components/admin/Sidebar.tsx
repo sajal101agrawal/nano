@@ -18,6 +18,8 @@ import {
   Menu,
   X,
   FileX2,
+  Building2,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { AdminSession } from "@/types";
@@ -29,6 +31,7 @@ const navGroups = [
       { label: "Dashboard", href: "/admin", icon: LayoutDashboard, exact: true },
       { label: "Requirements", href: "/admin/requirements", icon: Briefcase },
       { label: "Candidates", href: "/admin/candidates", icon: Users },
+      { label: "Talent Pool", href: "/admin/pool", icon: Layers },
       { label: "Incomplete", href: "/admin/drafts", icon: FileX2 },
     ],
   },
@@ -37,6 +40,14 @@ const navGroups = [
     items: [
       { label: "Email", href: "/admin/email", icon: Mail },
       { label: "Sourcing", href: "/admin/prospects", icon: Search },
+    ],
+  },
+  {
+    label: "Staffing",
+    items: [
+      { label: "Overview", href: "/admin/staffing", icon: Building2, exact: true },
+      { label: "Companies", href: "/admin/staffing/companies", icon: Building2 },
+      { label: "Resources", href: "/admin/staffing/resources", icon: Users },
     ],
   },
   {

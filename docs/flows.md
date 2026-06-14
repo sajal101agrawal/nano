@@ -8,7 +8,7 @@ Detailed walkthroughs of the major user flows in the platform.
 
 ### Overview
 
-The application flow is a client-side multi-step wizard (`src/app/jobs/[slug]/ApplicationFlow.tsx`) with five steps: `upload → details → preferences → submitting → done`. It supports draft persistence so candidates can resume if they close the browser.
+The application flow is a client-side multi-step wizard (`src/app/jobs/[slug]/ApplicationFlow.tsx`) with six steps: `upload → details → preferences → questions → submitting → done`. It supports draft persistence so candidates can resume if they close the browser.
 
 ### Step 1: Upload (`/jobs/[slug]`)
 
@@ -43,11 +43,19 @@ Collects work preferences:
 - Expected annual CTC (INR, in lakhs)
 - Expected hourly rate (only shown when Contract or Freelance is selected)
 
+On "Continue":
+1. Draft progress is saved via `PATCH /api/candidate/draft/[id]`
+2. Advances to the questions step (or submitting if no questions are configured)
+
+### Step 4: Screening questions
+
+If the requirement has custom screening questions (`requirement_questions`), the candidate answers them here. Question types: text, select, boolean, multiselect.
+
 On "Submit Application":
 1. Draft progress is saved
-2. `POST /api/candidate/apply` is called with all form data as `multipart/form-data`
+2. `POST /api/candidate/apply` is called with all form data as `multipart/form-data`, including JSON-encoded `answers`
 
-### Step 4: Submission (`POST /api/candidate/apply`)
+### Step 5: Submission (`POST /api/candidate/apply`)
 
 The API endpoint:
 
@@ -73,7 +81,7 @@ The API endpoint:
    - Sends confirmation email to candidate (fire-and-forget)
 9. Returns `{ success: true, applicationId }`
 
-### Step 5: Done
+### Step 6: Done
 
 Shows confirmation message with requirement title and a link to browse more positions.
 
@@ -208,7 +216,7 @@ Every hour, the `expire-availability-tokens` cron job:
 ## Admin: prospect sourcing flow
 
 1. Admin opens `/admin/prospects`
-2. Searches Apollo.io via `GET /api/admin/prospects/search?q=react+developer&location=Bengaluru&requirementId=...`
+2. Searches Apollo.io via `POST /api/admin/prospects/search` with body `{ skills, title, location, seniority }`
 3. Apollo results are saved to the `prospects` table and returned
 4. Admin can:
    - **Enrich** a prospect: `POST /api/admin/prospects/[id]/enrich` → Apollo enrichment data + email lookup stored in `enrichment_json`

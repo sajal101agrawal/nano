@@ -96,7 +96,7 @@ npm run db:seed
 npm run dev
 
 # Terminal 2: BullMQ worker
-npm run worker:dev
+npm run dev:worker
 ```
 
 ### 5. Verify setup
@@ -200,28 +200,20 @@ This runs `npm run build` before starting, then starts both the Next.js server a
 docker-compose up --build -d
 ```
 
-This builds and starts all five services: `postgres`, `redis`, `minio`, `app`, `worker`.
+This builds and starts four services: `postgres`, `redis`, `minio`, and `app` (Next.js + worker in one container).
 
 For production, you likely want to:
 - Replace the `minio` service with Cloudflare R2 or AWS S3
 - Replace the `postgres` service with a managed database
-- Use a managed Redis (e.g., Upstash, Redis Cloud)
+- Use a managed Redis (e.g., Upstash, Redis Cloud, Railway Redis plugin)
 
-### Separate app and worker
+### Railway deployment
 
-For production scale, run app and worker on separate machines:
+See [RAILWAY_DEPLOYMENT.md](../RAILWAY_DEPLOYMENT.md) for deploying as a single unified service on Railway with Postgres and Redis plugins.
 
-```bash
-# App server
-docker build -f Dockerfile -t nano-app .
-docker run -p 3000:3000 --env-file .env nano-app
+### Separate app and worker (advanced)
 
-# Worker server
-docker build -f Dockerfile.worker -t nano-worker .
-docker run --env-file .env nano-worker
-```
-
-Both need access to the same `DATABASE_URL` and `REDIS_URL`.
+For production scale, you can run app and worker on separate machines by building the same Docker image and overriding the entrypoint on the worker host to run only `node /app/src/worker/dist/index.js`.
 
 ---
 
@@ -284,7 +276,7 @@ Check that MinIO is running (`docker-compose ps`) and the bucket exists. Check `
 
 ### Worker not processing jobs
 
-Check the worker process is running (`npm run worker:dev`). Check Redis connectivity. Check that `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are set (the worker requires both).
+Check the worker process is running (`npm run dev:worker`). Check Redis connectivity. Check that `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are set (the worker requires both).
 
 ### Claude rate limit errors
 

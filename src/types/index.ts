@@ -327,11 +327,14 @@ export type TemplateType =
   | "recruiter_profile_share"
   | "otp"
   | "confirmation"
-  | "general";
+  | "general"
+  | "staffing_requirement_share"
+  | "staffing_general_outreach"
+  | "staffing_resource_request";
 
 export interface OutreachMessage {
   id: string;
-  target_type: "candidate" | "prospect" | "recruiter";
+  target_type: "candidate" | "prospect" | "recruiter" | "staffing_user";
   target_id: string;
   requirement_id?: string;
   template_id?: string;
@@ -409,4 +412,79 @@ export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
   message?: string;
+}
+
+// ─── Staffing Portal ──────────────────────────────────────────────────────────
+
+export interface StaffingCompany {
+  id: string;
+  name: string;
+  domain?: string;
+  website?: string;
+  industry?: string;
+  notes?: string;
+  verified: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StaffingUser {
+  id: string;
+  company_id: string;
+  email: string;
+  name: string;
+  designation?: string;
+  status: "active" | "suspended";
+  last_login_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StaffingResource {
+  id: string;
+  company_id: string;
+  added_by?: string;
+  full_name?: string;
+  email?: string;
+  phone?: string;
+  current_title?: string;
+  current_company?: string;
+  total_experience_years?: number;
+  location?: string;
+  work_mode?: string;
+  skills?: string[];
+  availability_status: "available" | "unavailable" | "unknown";
+  expected_rate?: string;
+  rate_currency?: string;
+  notice_period_days?: number;
+  notes?: string;
+  status: "active" | "inactive" | "deleted";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StaffingResourceProfile {
+  id: string;
+  resource_id: string;
+  raw_cv_url?: string;
+  raw_cv_filename?: string;
+  raw_cv_size_bytes?: number;
+  parsed_json?: ParsedCV;
+  summary?: string;
+  total_experience_years?: number;
+  current_title?: string;
+  current_company?: string;
+  parse_status: "pending" | "processing" | "completed" | "failed" | "review_required";
+  parse_error?: string;
+  version: number;
+  is_current: boolean;
+  created_at: string;
+}
+
+export interface StaffingSession {
+  userId: string;
+  companyId: string;
+  email: string;
+  name: string;
+  designation?: string;
 }

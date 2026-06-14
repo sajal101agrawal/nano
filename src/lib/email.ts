@@ -173,3 +173,36 @@ export async function sendConfirmationEmail(
     stream: "transactional",
   });
 }
+
+export async function sendStaffingOTPEmail(
+  to: string,
+  code: string,
+  userName?: string
+): Promise<{ success: boolean; error?: string }> {
+  const html = `
+    <div style="font-family:'Space Grotesk',system-ui,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#09090b;color:#f8fafc;border-radius:12px;">
+      <div style="margin-bottom:32px;">
+        <span style="font-size:20px;font-weight:700;color:#f8fafc;letter-spacing:-0.5px;">Sajal Tech — Vendor Portal</span>
+      </div>
+      <h1 style="font-size:24px;font-weight:700;margin:0 0 8px;color:#f8fafc;">Your verification code</h1>
+      <p style="color:#94a3b8;margin:0 0 32px;font-size:15px;">
+        ${userName ? `Hi ${userName}, use` : "Use"} this code to verify your email. It expires in ${process.env.OTP_EXPIRY_MINUTES || 10} minutes.
+      </p>
+      <div style="background:#18181b;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:24px;text-align:center;margin-bottom:32px;">
+        <span style="font-size:40px;font-weight:700;letter-spacing:16px;color:#8b5cf6;font-family:monospace;">${code}</span>
+      </div>
+      <p style="color:#64748b;font-size:13px;margin:0;">
+        This code is single-use and expires in ${process.env.OTP_EXPIRY_MINUTES || 10} minutes. If you did not request this, ignore this email.
+      </p>
+    </div>
+  `;
+
+  const result = await sendEmail({
+    to,
+    subject: `Your verification code: ${code}`,
+    html,
+    stream: "transactional",
+  });
+
+  return { success: result.success, error: result.error };
+}

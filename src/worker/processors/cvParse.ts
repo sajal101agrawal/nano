@@ -335,9 +335,182 @@ async function notifyAdmins(title: string, body: string, entityId: string) {
 }
 
 export async function cvParseProcessor(job: Job): Promise<void> {
-  const { profileId, candidateId, applicationId, cvKey, mimeType } = job.data;
-  const isLastAttempt = job.attemptsMade >= (job.opts?.attempts ?? 3) - 1;
+  const { profileId, candidateId, applicationId, cvKey, mimeType, targetType, resourceId } = job.data;
+  
+  if (targetType === "staffing_resource") {
+    return cvParseStaffingResource(job, { profileId, resourceId, cvKey, mimeType });
+  }
 
+  return cvParseCandidateProfile(job, { profileId, candidateId, applicationId, cvKey, mimeType });
+}
+
+async function cvParseStaffingResource(
+  job: Job,
+  { profileId, resourceId, cvKey, mimeType }: { profileId: string; resourceId: string; cvKey: string; mimeType: string }
+): Promise<void> {
+  const isLastAttempt = job.attemptsMade >= (job.opts?.attempts ?? 3) - 1;
+  console.log(`[cv-parse:staffing] Processing profile ${profileId} (attempt ${job.attemptsMade + 1})`);
+
+  await dbQuery(
+    "UPDATE staffing_resource_profiles SET parse_status = 'processing' WHERE id = $1",
+    [profileId]
+  );
+
+  try {
+    const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
+    const s3 = new S3Client({
+      region: process.env.S3_REGION || "us-east-1",
+      endpoint: process.env.S3_ENDPOINT,
+      credentials: {
+        accessKeyId: process.env.S3_ACCESS_KEY_ID || "",
+        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || "",
+      },
+      forcePathStyle: !!process.env.S3_ENDPOINT,
+    });
+
+    const bucket = process.env.S3_BUCKET_NAME || "nano-cvs";
+    const s3Response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: cvKey }));
+    const chunks: Buffer[] = [];
+    for await (const chunk of s3Response.Body as AsyncIterable<Buffer>) {
+      chunks.push(Buffer.from(chunk));
+    }
+    const buffer = Buffer.concat(chunks);
+
+    const { text: rawText, confidence } = await extractText(buffer, mimeType);
+
+    if (rawText.length < 50) {
+      await dbQuery(
+        "UPDATE staffing_resource_profiles SET parse_status = 'review_required', parse_error = $2 WHERE id = $1",
+        [profileId, "Could not extract sufficient text from CV"]
+      );
+      return;
+    }
+
+    const parsedCV = await parseCVWithAI(rawText, confidence);
+
+    if (!parsedCV.total_experience_years && (parsedCV.roles as unknown[] | undefined)?.length) {
+      const now = new Date();
+      let totalMonths = 0;
+      for (const role of parsedCV.roles as Array<{ start_date?: string; end_date?: string; is_current?: boolean; duration_months?: number }>) {
+        if (role.duration_months) {
+          totalMonths += role.duration_months;
+        } else if (role.start_date) {
+          const start = new Date(role.start_date + (role.start_date.length === 7 ? "-01" : ""));
+          const end = role.is_current || !role.end_date ? now : new Date(role.end_date + (role.end_date.length === 7 ? "-01" : ""));
+          if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+            totalMonths += Math.max(0, (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.44));
+          }
+        }
+      }
+      if (totalMonths > 0) parsedCV.total_experience_years = Math.round((totalMonths / 12) * 10) / 10;
+    }
+
+    const summary = await generateEnhancedSummary(parsedCV);
+    parsedCV.summary = summary;
+
+    await dbQuery(
+      `UPDATE staffing_resource_profiles SET
+         parsed_json = $1,
+         summary = $2,
+         total_experience_years = $3,
+         current_title = $4,
+         current_company = $5,
+         parse_status = 'completed'
+       WHERE id = $6`,
+      [JSON.stringify(parsedCV), summary, parsedCV.total_experience_years || null, parsedCV.current_title || null, parsedCV.current_company || null, profileId]
+    );
+
+    // Backfill resource core fields
+    const updates: string[] = [];
+    const vals: unknown[] = [];
+    const res = await dbQuery<{ full_name: string | null; current_title: string | null }>(
+      "SELECT full_name, current_title FROM staffing_resources WHERE id = $1",
+      [resourceId]
+    );
+    const r = res[0];
+    if (r) {
+      if (parsedCV.full_name && (!r.full_name || r.full_name === r.full_name)) {
+        vals.push(parsedCV.full_name); updates.push(`full_name = $${vals.length}`);
+      }
+      if (parsedCV.current_title && !r.current_title) {
+        vals.push(parsedCV.current_title); updates.push(`current_title = $${vals.length}`);
+      }
+      if (parsedCV.current_company) {
+        vals.push(parsedCV.current_company); updates.push(`current_company = $${vals.length}`);
+      }
+      if (parsedCV.total_experience_years) {
+        vals.push(parsedCV.total_experience_years); updates.push(`total_experience_years = $${vals.length}`);
+      }
+      if (parsedCV.location) {
+        vals.push(parsedCV.location); updates.push(`location = $${vals.length}`);
+      }
+      const skills = (parsedCV.skills as Array<{ skill: string }> || []).map((s) => s.skill).filter(Boolean);
+      if (skills.length) {
+        vals.push(skills); updates.push(`skills = $${vals.length}`);
+      }
+      if (updates.length) {
+        vals.push(resourceId);
+        await dbQuery(
+          `UPDATE staffing_resources SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${vals.length}`,
+          vals
+        );
+      }
+    }
+
+    // Upsert skills
+    const skills = (parsedCV.skills || []) as Array<{ skill: string; years?: number; proficiency?: string }>;
+    if (skills.length > 0) {
+      await dbQuery("DELETE FROM staffing_resource_skills WHERE resource_id = $1", [resourceId]);
+      for (const skill of skills) {
+        if (!skill.skill?.trim()) continue;
+        const normalized = skill.skill.toLowerCase().trim().replace(/[\s.]+/g, "_");
+        await dbQuery(
+          `INSERT INTO staffing_resource_skills (id, resource_id, skill, skill_normalized, years, proficiency)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
+           ON CONFLICT DO NOTHING`,
+          [resourceId, skill.skill.trim(), normalized, skill.years || null, skill.proficiency || null]
+        );
+      }
+    }
+
+    // Generate embedding
+    const embeddingParts = [
+      summary,
+      parsedCV.headline,
+      parsedCV.current_title,
+      parsedCV.domain,
+      skills.slice(0, 20).map((s) => s.skill).join(", "),
+      (parsedCV.roles as Array<{ title: string; company: string }> || [])
+        .slice(0, 4).map((r) => `${r.title} at ${r.company}`).join(". "),
+    ].filter(Boolean).join(". ");
+
+    const embedding = await generateEmbedding(embeddingParts);
+    await dbQuery(
+      "UPDATE staffing_resource_profiles SET embedding = $1 WHERE id = $2",
+      [`[${embedding.join(",")}]`, profileId]
+    );
+
+    console.log(`[cv-parse:staffing] Completed profile ${profileId}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[cv-parse:staffing] Error on profile ${profileId}:`, message);
+    if (isLastAttempt) {
+      await dbQuery(
+        "UPDATE staffing_resource_profiles SET parse_status = 'failed', parse_error = $2 WHERE id = $1",
+        [profileId, message]
+      );
+    }
+    throw err;
+  }
+}
+
+async function cvParseCandidateProfile(
+  job: Job,
+  { profileId, candidateId, applicationId, cvKey, mimeType }: {
+    profileId: string; candidateId: string; applicationId: string; cvKey: string; mimeType: string;
+  }
+): Promise<void> {
+  const isLastAttempt = job.attemptsMade >= (job.opts?.attempts ?? 3) - 1;
   console.log(`[cv-parse] Processing profile ${profileId} (attempt ${job.attemptsMade + 1})`);
 
   await dbQuery(

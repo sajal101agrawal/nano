@@ -1,18 +1,67 @@
 # Nano
 
-Nano is a full-stack staff augmentation talent platform. It combines a public-facing candidate job board with a private admin dashboard, an AI-powered CV parsing and matching pipeline, automated availability tracking, and multi-stream email outreach — all backed by PostgreSQL with pgvector, Redis/BullMQ, and Anthropic Claude.
+Nano is a full-stack staff augmentation talent platform. It combines a public-facing candidate job board with a private admin dashboard, a vendor (staffing company) portal, an AI-powered CV parsing and matching pipeline, automated availability tracking, draft application recovery, and multi-stream email outreach — backed by PostgreSQL with pgvector, Redis/BullMQ, and Anthropic Claude.
 
 ---
 
 ## What it does
 
-- **Job Board**: Candidates browse open requirements and apply with a multi-step flow — CV upload, contact details, work preferences, and custom screening questions.
-- **CV Parsing**: Uploaded CVs (PDF/DOCX) are parsed by Claude using tool-use for guaranteed structured output, generating a canonical profile, skill list, recruiter summary, and a semantic vector embedding.
-- **AI Matching**: For every open requirement, the platform runs HNSW cosine-similarity search over all candidate embeddings, applies rule-based scoring (availability, contract preference, experience), then re-ranks the top 20 with a Claude prompt. Results are stored in the `matches` table.
-- **Admin Dashboard**: Manage candidates, requirements, clients, applications, prospects, email outreach, and system notifications from a single interface.
-- **Availability Tracking**: Token-based one-click availability checks sent via email; a daily bulk cron proactively pings idle candidates.
-- **External Sourcing**: Apollo.io integration to search, enrich, and outreach prospects that have not yet applied.
-- **Draft Applications**: If a candidate uploads a CV but does not finish, the partial draft is persisted and resumed via URL state. Abandonment reminders fire at 15 minutes and 6 hours.
+**For candidates (public)**
+- Browse open roles at `/jobs` and apply via a multi-step wizard: CV upload, contact details, work preferences, and custom screening questions
+- Resume incomplete applications via saved draft links
+- Confirm availability with one-click email links
+- Unsubscribe from outreach emails
+
+**For staffing companies / vendors (portal)**
+- Register at `/staffing/register` using a company email (personal email providers blocked)
+- Email OTP-based auth — no passwords required
+- Company autocomplete during registration builds a shared company database
+- Upload CVs in bulk (up to 50 PDF/DOCX files at once) — AI parses and indexes them automatically
+- Import resources via CSV template
+- Manage resource availability (available / unavailable / unknown) per person
+- Edit resource details, notes, rates, and notice periods
+- View their resource pool with search and availability filters
+
+**For recruiters (admin)**
+- Manage candidates, requirements, clients, and applications from `/admin`
+- Review AI-ranked matches with scores and rationale for every open role
+- Send templated outreach emails with delivery tracking
+- Source external prospects via Apollo.io search and enrichment
+- Export client-ready redacted CVs with agency branding
+- Monitor analytics, notifications, and incomplete drafts
+- **Staffing section** at `/admin/staffing`:
+  - View all vendor companies, users, and their resource pools
+  - Verify/unverify companies, edit or delete companies and users
+  - Search and filter the full resource pool across all companies
+  - Send email to individual users, specific users, or all users of a company — with staffing-specific templates and optional JD attachment
+
+**Under the hood**
+- CVs parsed by Claude (`tool_use` for structured output) with OpenAI embeddings for semantic search
+- HNSW vector similarity + rule-based scoring + Claude re-ranking for candidate matching
+- BullMQ background worker for CV parsing, matching, email, availability checks, and draft reminders
+- Resend for transactional, outreach, and availability email streams
+
+---
+
+## Architecture
+
+```
+Browser
+   │
+   ▼
+Next.js App (port 3000)          BullMQ Worker
+   ├─ /jobs (public)                  ├─ cv-parse (candidates + staffing resources)
+   ├─ /staffing (vendor portal)        ├─ match
+   ├─ /admin (JWT-gated)              ├─ email
+   └─ /api/* (REST)                   ├─ availability
+        │         │                   └─ draft-reminder
+        ▼         ▼
+      Redis   PostgreSQL + pgvector
+                  │
+              S3 / MinIO (CVs)
+```
+
+Two long-running processes share PostgreSQL and Redis. In production Docker/Railway, both run in a single container via `scripts/start.sh`.
 
 ---
 
@@ -20,80 +69,17 @@ Nano is a full-stack staff augmentation talent platform. It combines a public-fa
 
 | Layer | Technology |
 |---|---|
-| Framework | Next.js 16 (App Router, React 18) |
-| Language | TypeScript 5 |
+| Framework | Next.js 16 (App Router), React 18, TypeScript 5 |
 | Database | PostgreSQL 16 + pgvector + pg_trgm |
 | Queue / Cache | Redis 7 + BullMQ 5 |
-| File Storage | S3-compatible (Cloudflare R2 or AWS S3; MinIO for local dev) |
+| File Storage | S3-compatible (MinIO local, Cloudflare R2 / AWS S3 prod) |
 | AI — Parsing & Ranking | Anthropic Claude (claude-sonnet-4-5) |
 | AI — Embeddings | OpenAI text-embedding-3-small (1536-dim) |
 | Email | Resend |
-| Authentication | JWT via jose, Argon2 password hashing, TOTP 2FA |
-| Styling | Tailwind CSS 3 + Radix UI primitives |
-| PDF Generation | @react-pdf/renderer, PDFKit |
-| Background Worker | BullMQ (runs alongside Next.js in production) |
-
----
-
-## Project structure
-
-```
-nano/
-├── src/
-│   ├── app/
-│   │   ├── admin/                  # Admin dashboard pages (Next.js App Router)
-│   │   │   ├── (auth)/login/       # Admin login + 2FA
-│   │   │   └── (dashboard)/        # Protected admin pages
-│   │   │       ├── candidates/     # Candidate list + detail
-│   │   │       ├── requirements/   # Requirements list + create + detail
-│   │   │       ├── prospects/      # External prospect search
-│   │   │       ├── email/          # Email outreach UI
-│   │   │       ├── analytics/      # Dashboard analytics
-│   │   │       ├── drafts/         # Incomplete applications
-│   │   │       ├── notifications/  # Admin notification inbox
-│   │   │       └── settings/       # Profile, 2FA, agency settings
-│   │   ├── api/
-│   │   │   ├── admin/              # Admin REST API (JWT-protected)
-│   │   │   └── candidate/          # Public candidate API
-│   │   ├── jobs/                   # Public job board
-│   │   ├── availability/           # Availability confirmation page
-│   │   └── unsubscribe/            # Email unsubscribe page
-│   ├── components/
-│   │   ├── admin/                  # Admin-specific components
-│   │   └── ui/                     # Base UI primitives
-│   ├── lib/
-│   │   ├── ai.ts                   # Claude wrappers (CV parse, JD parse, ranking)
-│   │   ├── auth.ts                 # JWT session management, password hashing
-│   │   ├── db.ts                   # PostgreSQL pool + query helpers
-│   │   ├── email.ts                # Resend integration + template rendering
-│   │   ├── embeddings.ts           # OpenAI embeddings + vector search helpers
-│   │   ├── otp.ts                  # OTP generation/verification
-│   │   ├── queue.ts                # BullMQ queue definitions + enqueue helpers
-│   │   ├── redis.ts                # Redis client + rate limiting
-│   │   └── storage.ts              # S3 upload / signed URL / delete
-│   ├── worker/
-│   │   ├── index.ts                # Worker entry point (all BullMQ workers)
-│   │   ├── redis.ts                # Redis connection helper for workers
-│   │   ├── scheduler.ts            # Cron job registration
-│   │   └── processors/
-│   │       ├── cvParse.ts          # CV download → text extract → Claude parse → embed
-│   │       ├── match.ts            # Vector search → rule scoring → Claude re-rank
-│   │       ├── availability.ts     # Send/expire availability tokens, bulk checks
-│   │       ├── email.ts            # Send queued outreach emails via Resend
-│   │       └── draftReminder.ts    # Draft abandonment reminders + expiry
-│   ├── types/index.ts              # Shared TypeScript types
-│   └── proxy.ts                    # Next.js middleware (admin auth guard)
-├── migrations/                     # SQL migration files (run in order)
-├── scripts/
-│   ├── migrate.js                  # Migration runner
-│   ├── seed.js                     # Admin user seed
-│   ├── start.sh                    # Production startup (migrations + app + worker)
-│   └── init-db.sql                 # Docker entrypoint init
-├── docker-compose.yml              # Local infra: Postgres, Redis, MinIO
-├── Dockerfile                      # Production container (Next.js + worker)
-├── start.sh                        # One-command local dev start
-└── .env.example                    # All environment variables documented
-```
+| SMS (optional) | Twilio |
+| Sourcing (optional) | Apollo.io |
+| Auth | JWT (jose), Argon2, TOTP 2FA (admin), Email OTP (candidates + vendors) |
+| UI | Tailwind CSS 3, Radix UI, Lucide icons |
 
 ---
 
@@ -104,145 +90,105 @@ nano/
 - Node.js 20+
 - Docker and Docker Compose
 
-### 1. Clone and configure
+### Setup
 
 ```bash
 git clone <repo-url>
 cd nano
 cp .env.example .env
-```
-
-Edit `.env` and fill in:
-- `ANTHROPIC_API_KEY` — Claude API key
-- `OPENAI_API_KEY` — OpenAI embeddings key
-- `RESEND_API_KEY` — Resend email key
-- `SESSION_SECRET` — at least 32 random characters
-- `APP_SECRET` — at least 32 random characters
-
-For local dev, the database, Redis, and MinIO credentials in `.env.example` already match the Docker Compose defaults and do not need to change.
-
-### 2. Start everything
-
-```bash
+# Fill in ANTHROPIC_API_KEY, OPENAI_API_KEY, RESEND_API_KEY, SESSION_SECRET, APP_SECRET
 ./start.sh
 ```
 
-This script:
-1. Starts Postgres, Redis, and MinIO containers
-2. Waits for health checks
-3. Runs database migrations
-4. Seeds the admin account (from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env`)
-5. Starts the Next.js dev server and the BullMQ worker
-
 Access:
-- App: http://localhost:3000
-- Admin: http://localhost:3000/admin
-- MinIO console: http://localhost:9001 (credentials: `minioadmin` / `minioadmin`)
+- App / Job board: http://localhost:3000
+- Admin: http://localhost:3000/admin (credentials from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env`)
+- Vendor portal: http://localhost:3000/staffing
+- MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`)
 
-### 3. Manual start (without the script)
+For manual setup, port configuration, and production deployment, see [docs/setup.md](docs/setup.md).
 
-```bash
-# Start infra
-docker-compose up -d postgres redis minio
+---
 
-# Run migrations
-npm run db:migrate
+## Scripts
 
-# Seed admin
-npm run db:seed
+| Command | Description |
+|---|---|
+| `./start.sh` | One-command dev start (infra + migrate + seed + app + worker) |
+| `./start.sh prod` | Production mode locally |
+| `npm run dev` | Next.js dev server |
+| `npm run dev:worker` | Worker with hot reload |
+| `npm run dev:all` | Both app and worker |
+| `npm run build` | Production build |
+| `npm run worker` | Production worker |
+| `npm run db:migrate` | Run SQL migrations |
+| `npm run db:seed` | Seed admin account |
+| `npm run test` | Jest tests |
+| `npm run type-check` | TypeScript check |
 
-# Start both app and worker in development mode
-npm run dev:all
+---
 
-# Or run them separately in two terminals:
-npm run dev         # Next.js app
-npm run dev:worker  # Background worker
+## Documentation
+
+Full documentation is in the [docs/](docs/) folder:
+
+| Document | Topics |
+|---|---|
+| [docs/README.md](docs/README.md) | Documentation index and platform overview |
+| [Features](docs/features.md) | All platform features and capabilities |
+| [Architecture](docs/architecture.md) | System design, auth, queues, data flows, security |
+| [Application Flows](docs/flows.md) | Candidate apply, admin workflows, email, availability |
+| [Admin Dashboard](docs/admin-dashboard.md) | Admin UI sections and recruiter actions |
+| [API Reference](docs/api.md) | All REST endpoints |
+| [Database Schema](docs/database.md) | Tables, indexes, relationships |
+| [AI & Matching](docs/ai-matching.md) | CV parsing, embeddings, matching algorithm |
+| [Worker & Queues](docs/worker.md) | BullMQ processors and cron jobs |
+| [Integrations](docs/integrations.md) | Claude, OpenAI, Resend, Apollo, S3, Twilio |
+| [Setup Guide](docs/setup.md) | Local dev, Docker, production |
+| [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) | Railway deployment guide |
+
+---
+
+## Project structure
+
+```
+nano/
+├── src/
+│   ├── app/
+│   │   ├── admin/              # Admin dashboard (auth + protected pages + staffing section)
+│   │   ├── staffing/           # Vendor portal (auth + portal pages)
+│   │   ├── api/                # REST API (admin + candidate + staffing)
+│   │   ├── jobs/               # Public job board + application wizard
+│   │   ├── availability/       # Availability confirmation
+│   │   └── unsubscribe/        # Email unsubscribe
+│   ├── components/             # UI, admin, and staffing components
+│   ├── lib/                    # Core business logic (ai, auth, db, email, queue, storage)
+│   ├── worker/                 # BullMQ worker and processors
+│   └── types/                  # Shared TypeScript types
+├── migrations/                 # SQL migrations (001–008)
+├── scripts/                    # migrate, seed, init-bucket, start
+├── docs/                       # Platform documentation
+├── docker-compose.yml          # Postgres, Redis, MinIO, app
+└── Dockerfile                  # Production container
 ```
 
 ---
 
 ## Environment variables
 
-See `.env.example` for the full reference. Key variables:
+See `.env.example` for the full reference. Required for core functionality:
 
-| Variable | Description |
+| Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis connection string |
-| `SESSION_SECRET` | JWT signing secret (min 32 chars) |
-| `APP_SECRET` | General app secret |
-| `S3_ACCESS_KEY_ID` | S3/R2 access key |
-| `S3_SECRET_ACCESS_KEY` | S3/R2 secret key |
-| `S3_BUCKET_NAME` | Bucket name for CV files |
-| `S3_ENDPOINT` | Custom endpoint for R2 or MinIO |
-| `ANTHROPIC_API_KEY` | Claude API key |
-| `OPENAI_API_KEY` | OpenAI API key (embeddings) |
-| `EMBEDDINGS_MODEL` | Embedding model name (default: `text-embedding-3-small`) |
-| `EMBEDDINGS_DIMENSIONS` | Embedding dimensions (default: `1536`) |
-| `RESEND_API_KEY` | Resend API key |
-| `EMAIL_FROM_TRANSACTIONAL` | From address for OTP/confirmation emails |
-| `EMAIL_FROM_OUTREACH` | From address for outreach/availability emails |
-| `TWILIO_ACCOUNT_SID` | Twilio SID (SMS OTP) |
-| `TWILIO_AUTH_TOKEN` | Twilio auth token |
-| `TWILIO_PHONE_NUMBER` | Twilio phone number |
-| `APOLLO_API_KEY` | Apollo.io API key (prospect sourcing) |
-| `ADMIN_EMAIL` | Initial admin email (used by seed) |
-| `ADMIN_PASSWORD` | Initial admin password (used by seed) |
-| `MAX_CV_SIZE_MB` | Max CV upload size (default: `10`) |
-| `OTP_EXPIRY_MINUTES` | OTP validity window (default: `10`) |
-| `AVAILABILITY_TOKEN_EXPIRY_DAYS` | Availability link TTL (default: `14`) |
-| `AVAILABILITY_CHECK_INTERVAL_DAYS` | Days between auto availability checks (default: `21`) |
+| `DATABASE_URL` | PostgreSQL connection (port `5433` for local Docker) |
+| `REDIS_URL` | Redis connection (port `6380` for local Docker) |
+| `SESSION_SECRET` | JWT signing (min 32 chars) — shared by admin, candidate, and vendor sessions |
+| `ANTHROPIC_API_KEY` | Claude API for CV/JD parsing and ranking |
+| `OPENAI_API_KEY` | Embeddings |
+| `RESEND_API_KEY` | Email delivery |
+| `S3_*` | CV file storage (MinIO defaults work for local dev) |
 
----
-
-## Scripts
-
-| Script | Description |
-|---|---|
-| `npm run dev` | Next.js dev server with hot reload |
-| `npm run dev:worker` | Worker with tsx watch (hot reload) |
-| `npm run dev:all` | Start both app and worker in dev mode (uses concurrently) |
-| `npm run build` | Production build |
-| `npm run start` | Start production server |
-| `npm run worker` | Start worker (production) |
-| `npm run db:migrate` | Run pending SQL migrations |
-| `npm run db:seed` | Seed initial admin account |
-| `npm run test` | Run Jest tests |
-| `npm run type-check` | TypeScript type check (no emit) |
-| `./start.sh` | One-command full start (dev mode) |
-| `./start.sh prod` | One-command full start (production mode) |
-
----
-
-## Docker (production)
-
-```bash
-# Build and start all services
-docker-compose up --build
-
-# Start only infrastructure for local dev
-docker-compose up -d postgres redis minio
-```
-
-The production Docker setup runs both the Next.js app and the background worker in a single container. The `docker-compose.yml` includes:
-- `nano_postgres` — pgvector/pgvector:pg16 on port 5433
-- `nano_redis` — redis:7-alpine on port 6380
-- `nano_minio` — MinIO on ports 9000/9001
-- `nano_app` — Next.js app + worker on port 3000
-
----
-
-## Documentation
-
-Detailed documentation is in the `docs/` folder:
-
-- [Architecture](docs/architecture.md) — system design, data flow, component relationships
-- [Setup Guide](docs/setup.md) — local, staging, and production setup
-- [Database Schema](docs/database.md) — all tables, columns, indexes, and relationships
-- [API Reference](docs/api.md) — all REST endpoints with request/response details
-- [Worker & Queues](docs/worker.md) — BullMQ queues, processors, scheduler, cron jobs
-- [AI & Matching](docs/ai-matching.md) — CV parsing pipeline, embedding strategy, matching algorithm
-- [Application Flows](docs/flows.md) — candidate apply flow, admin workflows, email flows
+Optional: `TWILIO_*` (SMS OTP), `APOLLO_API_KEY` (prospect sourcing).
 
 ---
 
@@ -254,4 +200,186 @@ npm run test:watch     # watch mode
 npm run type-check     # TypeScript check
 ```
 
-Tests are in `src/lib/__tests__/` and cover auth utilities, email helpers, AI wrappers, and general utils.
+Tests are in `src/lib/__tests__/` and cover auth, email helpers, AI wrappers, and utilities.
+
+---
+
+## What it does
+
+**For candidates (public)**
+- Browse open roles at `/jobs` and apply via a multi-step wizard: CV upload, contact details, work preferences, and custom screening questions
+- Resume incomplete applications via saved draft links
+- Confirm availability with one-click email links
+- Unsubscribe from outreach emails
+
+**For recruiters (admin)**
+- Manage candidates, requirements, clients, and applications from `/admin`
+- Review AI-ranked matches with scores and rationale for every open role
+- Send templated outreach emails with delivery tracking
+- Source external prospects via Apollo.io search and enrichment
+- Export client-ready redacted CVs with agency branding
+- Monitor analytics, notifications, and incomplete drafts
+
+**Under the hood**
+- CVs parsed by Claude (`tool_use` for structured output) with OpenAI embeddings for semantic search
+- HNSW vector similarity + rule-based scoring + Claude re-ranking for candidate matching
+- BullMQ background worker for CV parsing, matching, email, availability checks, and draft reminders
+- Resend for transactional, outreach, and availability email streams
+
+---
+
+## Architecture
+
+```
+Browser
+   │
+   ▼
+Next.js App (port 3000)          BullMQ Worker
+   ├─ /jobs (public)                  ├─ cv-parse
+   ├─ /admin (JWT-gated)              ├─ match
+   └─ /api/* (REST)                   ├─ email
+        │         │                   ├─ availability
+        ▼         ▼                   └─ draft-reminder
+      Redis   PostgreSQL + pgvector
+                  │
+              S3 / MinIO (CVs)
+```
+
+Two long-running processes share PostgreSQL and Redis. In production Docker/Railway, both run in a single container via `scripts/start.sh`.
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 (App Router), React 18, TypeScript 5 |
+| Database | PostgreSQL 16 + pgvector + pg_trgm |
+| Queue / Cache | Redis 7 + BullMQ 5 |
+| File Storage | S3-compatible (MinIO local, Cloudflare R2 / AWS S3 prod) |
+| AI — Parsing & Ranking | Anthropic Claude (claude-sonnet-4-5) |
+| AI — Embeddings | OpenAI text-embedding-3-small (1536-dim) |
+| Email | Resend |
+| SMS (optional) | Twilio |
+| Sourcing (optional) | Apollo.io |
+| Auth | JWT (jose), Argon2, TOTP 2FA |
+| UI | Tailwind CSS 3, Radix UI, Lucide icons |
+
+---
+
+## Quick start
+
+### Prerequisites
+
+- Node.js 20+
+- Docker and Docker Compose
+
+### Setup
+
+```bash
+git clone <repo-url>
+cd nano
+cp .env.example .env
+# Fill in ANTHROPIC_API_KEY, OPENAI_API_KEY, RESEND_API_KEY, SESSION_SECRET, APP_SECRET
+./start.sh
+```
+
+Access:
+- App: http://localhost:3000
+- Admin: http://localhost:3000/admin (credentials from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env`)
+- MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`)
+
+For manual setup, port configuration, and production deployment, see [docs/setup.md](docs/setup.md).
+
+---
+
+## Scripts
+
+| Command | Description |
+|---|---|
+| `./start.sh` | One-command dev start (infra + migrate + seed + app + worker) |
+| `./start.sh prod` | Production mode locally |
+| `npm run dev` | Next.js dev server |
+| `npm run dev:worker` | Worker with hot reload |
+| `npm run dev:all` | Both app and worker |
+| `npm run build` | Production build |
+| `npm run worker` | Production worker |
+| `npm run db:migrate` | Run SQL migrations |
+| `npm run db:seed` | Seed admin account |
+| `npm run test` | Jest tests |
+| `npm run type-check` | TypeScript check |
+
+---
+
+## Documentation
+
+Full documentation is in the [docs/](docs/) folder:
+
+| Document | Topics |
+|---|---|
+| [docs/README.md](docs/README.md) | Documentation index and platform overview |
+| [Features](docs/features.md) | All platform features and capabilities |
+| [Architecture](docs/architecture.md) | System design, auth, queues, data flows, security |
+| [Application Flows](docs/flows.md) | Candidate apply, admin workflows, email, availability |
+| [Admin Dashboard](docs/admin-dashboard.md) | Admin UI sections and recruiter actions |
+| [API Reference](docs/api.md) | All REST endpoints |
+| [Database Schema](docs/database.md) | Tables, indexes, relationships |
+| [AI & Matching](docs/ai-matching.md) | CV parsing, embeddings, matching algorithm |
+| [Worker & Queues](docs/worker.md) | BullMQ processors and cron jobs |
+| [Integrations](docs/integrations.md) | Claude, OpenAI, Resend, Apollo, S3, Twilio |
+| [Setup Guide](docs/setup.md) | Local dev, Docker, production |
+| [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) | Railway deployment guide |
+
+---
+
+## Project structure
+
+```
+nano/
+├── src/
+│   ├── app/
+│   │   ├── admin/              # Admin dashboard (auth + protected pages)
+│   │   ├── api/                # REST API (admin + candidate)
+│   │   ├── jobs/               # Public job board + application wizard
+│   │   ├── availability/       # Availability confirmation
+│   │   └── unsubscribe/        # Email unsubscribe
+│   ├── components/             # UI and admin components
+│   ├── lib/                    # Core business logic (ai, auth, db, email, queue, storage)
+│   ├── worker/                 # BullMQ worker and processors
+│   └── types/                  # Shared TypeScript types
+├── migrations/                 # SQL migrations (001–006)
+├── scripts/                    # migrate, seed, init-bucket, start
+├── docs/                       # Platform documentation
+├── docker-compose.yml          # Postgres, Redis, MinIO, app
+└── Dockerfile                  # Production container
+```
+
+---
+
+## Environment variables
+
+See `.env.example` for the full reference. Required for core functionality:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection (port `5433` for local Docker) |
+| `REDIS_URL` | Redis connection (port `6380` for local Docker) |
+| `SESSION_SECRET` | JWT signing (min 32 chars) |
+| `ANTHROPIC_API_KEY` | Claude API for CV/JD parsing and ranking |
+| `OPENAI_API_KEY` | Embeddings |
+| `RESEND_API_KEY` | Email delivery |
+| `S3_*` | CV file storage (MinIO defaults work for local dev) |
+
+Optional: `TWILIO_*` (SMS OTP), `APOLLO_API_KEY` (prospect sourcing).
+
+---
+
+## Testing
+
+```bash
+npm run test           # run all tests
+npm run test:watch     # watch mode
+npm run type-check     # TypeScript check
+```
+
+Tests are in `src/lib/__tests__/` and cover auth, email helpers, AI wrappers, and utilities.

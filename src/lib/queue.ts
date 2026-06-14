@@ -81,11 +81,13 @@ export const enrichmentQueue = new Queue("enrichment", {
 // Job type interfaces
 export interface CVParseJobData {
   profileId: string;
-  candidateId: string;
-  applicationId: string;
+  candidateId?: string;
+  applicationId?: string;
+  resourceId?: string;
   cvUrl: string;
   cvKey: string;
   mimeType: string;
+  targetType?: "candidate" | "staffing_resource";
 }
 
 export interface EmailJobData {

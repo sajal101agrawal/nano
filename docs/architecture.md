@@ -40,7 +40,7 @@ The app and worker are intentionally separate processes. This allows:
 - Worker failures do not affect HTTP response times
 - Worker can be restarted during CV processing without affecting the web server
 
-In `docker-compose.yml` they are separate services (`nano_app`, `nano_worker`). In local dev, `start.sh` starts them as two background processes in the same shell.
+In `docker-compose.yml`, the production `app` service runs both Next.js and the worker in a single container via `scripts/start.sh`. In local dev, `start.sh` starts them as two separate background processes.
 
 ---
 

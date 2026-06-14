@@ -2,16 +2,17 @@
 
 ## Overview
 
-The background worker is a standalone Node.js process (`worker/src/index.ts`) that runs separately from the Next.js app. It processes all asynchronous jobs using BullMQ backed by Redis.
+The background worker is a standalone Node.js process (`src/worker/index.ts`) that runs separately from the Next.js app. It processes all asynchronous jobs using BullMQ backed by Redis.
 
 Starting the worker:
 
 ```bash
 # Development (with file watching)
-npm run worker:dev
+npm run dev:worker
 
 # Production (compiled)
-npm run worker:start
+npm run build:worker
+npm run worker
 ```
 
 The worker connects to the same PostgreSQL database and Redis instance as the Next.js app. It also connects to S3/MinIO for CV files and uses the Anthropic and OpenAI APIs.
@@ -36,7 +37,7 @@ Job retention: completed jobs retained 24 hours, failed jobs retained 7 days.
 
 ## Processors
 
-### `cvParseProcessor` (`worker/src/processors/cvParse.ts`)
+### `cvParseProcessor` (`src/worker/processors/cvParse.ts`)
 
 Processes jobs from the `cv-parse` queue. Triggered by `POST /api/candidate/apply` via `enqueueCVParse()`.
 
@@ -199,7 +200,7 @@ Processes jobs from the `draft-reminder` queue. Three job types are handled.
 
 ---
 
-## Scheduler (`worker/src/scheduler.ts`)
+## Scheduler (`src/worker/scheduler.ts`)
 
 The scheduler registers recurring BullMQ `repeat` jobs on startup. Cron patterns are in UTC.
 

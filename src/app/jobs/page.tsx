@@ -48,6 +48,12 @@ export default async function JobsPage() {
             <Image src="/logo.png" alt="Sajal Tech" width={100} height={34} className="h-7 w-auto" priority />
             <span className="text-text-muted text-[11px] leading-tight">Careers</span>
           </a>
+          <Link
+            href="/staffing/register"
+            className="text-[12px] text-text-muted hover:text-primary transition-colors"
+          >
+            Are you a vendor? Register here
+          </Link>
         </div>
       </header>
 
@@ -142,6 +148,12 @@ export default async function JobsPage() {
       <footer className="border-t border-border py-6 px-5 sm:px-6">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <Image src="/logo.png" alt="Sajal Tech" width={80} height={27} className="h-5 w-auto opacity-60" />
+          <Link
+            href="/staffing/register"
+            className="text-[11px] text-text-muted hover:text-primary transition-colors"
+          >
+            Are you a vendor?
+          </Link>
           <a
             href="https://sajaltech.com"
             target="_blank"

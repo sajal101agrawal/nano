@@ -2,7 +2,19 @@
 
 All API routes are under `/api/`. Routes under `/api/admin/` require a valid `nano_admin_session` JWT cookie (set after login). Routes under `/api/candidate/` are public (rate-limited).
 
-Response format is always JSON: `{ success: boolean, data?: T, error?: string, message?: string }`.
+Response format is JSON. Admin routes typically use: `{ success: boolean, data?: T, error?: string }`. Some routes return data directly without the wrapper.
+
+---
+
+## Health
+
+### GET `/api/health`
+
+Public health check. Used by Railway deployment healthcheck.
+
+**Response:** `{ status: "ok" | "degraded", checks: { database: "ok" | "error" } }`
+
+Returns HTTP 503 when database is unreachable.
 
 ---
 
@@ -283,19 +295,23 @@ Create a new client.
 
 ## Admin — Prospects
 
-### GET `/api/admin/prospects/search`
+### POST `/api/admin/prospects/search`
 
-Search Apollo.io for candidates matching a query. Results are saved to the `prospects` table.
+Search Apollo.io for candidates matching a query. Results are upserted into the `prospects` table.
 
-**Query parameters:**
+**Request body (JSON):**
+```json
+{
+  "skills": "React TypeScript",
+  "title": "Senior Frontend Developer",
+  "location": "Bengaluru",
+  "seniority": "senior"
+}
+```
 
-| Param | Description |
-|---|---|
-| `q` | Job title or keyword |
-| `location` | Location filter |
-| `requirementId` | Associate results with a requirement |
+**Response:** `{ prospects: Prospect[] }`
 
-**Response:** `{ success: true, data: Prospect[] }`
+Returns an empty array if `APOLLO_API_KEY` is not configured.
 
 ---
 
@@ -343,19 +359,55 @@ This endpoint is excluded from admin auth middleware and is public.
 
 ---
 
+## Health
+
+### GET `/api/health`
+
+Public health check (used by Railway). Verifies database connectivity.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "checks": { "database": "ok" }
+}
+```
+
+Returns HTTP 503 with `"status": "degraded"` if the database check fails.
+
+---
+
 ## Admin — Shortlist
 
 ### POST `/api/admin/shortlist`
 
-Shortlist one or more candidates for a requirement (bulk status update to `shortlisted`).
+Manually add a candidate to the shortlist for a requirement. Upserts into the `matches` table with `is_manual = true`.
 
 **Request body (JSON):**
 ```json
 {
   "requirementId": "uuid",
-  "candidateIds": ["uuid1", "uuid2"]
+  "candidateId": "uuid"
 }
 ```
+
+**Response:** `{ success: true, data: { added: true } }`
+
+---
+
+### DELETE `/api/admin/shortlist`
+
+Remove a candidate from the shortlist.
+
+**Request body (JSON):**
+```json
+{
+  "requirementId": "uuid",
+  "candidateId": "uuid"
+}
+```
+
+**Response:** `{ success: true, data: { removed: true } }`
 
 ---
 
@@ -388,19 +440,13 @@ Dashboard metrics.
 **Response:**
 ```json
 {
-  "success": true,
-  "data": {
-    "totalCandidates": 450,
-    "activeCandidates": 390,
-    "availableCandidates": 120,
-    "totalRequirements": 12,
-    "openRequirements": 8,
-    "totalApplications": 340,
-    "recentApplications": 28,
-    "parseSuccessRate": 0.94,
-    "applicationsByStatus": { "applied": 40, "shortlisted": 15, ... },
-    "topSkills": [{ "skill": "React", "count": 85 }, ...]
-  }
+  "poolStats": { "total": "450", "active": "390", "last30d": "28" },
+  "availabilityBreakdown": [{ "availability_status": "available", "count": "120" }],
+  "applicationFunnel": [{ "status": "applied", "count": "40" }],
+  "requirementsByStatus": [{ "status": "open", "count": "8" }],
+  "emailStats": [{ "status": "delivered", "count": "200" }],
+  "weeklyGrowth": [{ "week": "2026-06-09T00:00:00.000Z", "count": "12" }],
+  "topSkills": [{ "skill": "React", "count": "85" }]
 }
 ```
 

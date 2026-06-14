@@ -1,10 +1,11 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { query, queryOne } from "./db";
-import type { User, AdminSession, CandidateSession } from "@/types";
+import type { User, AdminSession, CandidateSession, StaffingSession } from "@/types";
 
 const ADMIN_SESSION_COOKIE = "nano_admin_session";
 const CANDIDATE_SESSION_COOKIE = "nano_candidate_session";
+const STAFFING_SESSION_COOKIE = "nano_staffing_session";
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
 
 function getSecret(): Uint8Array {
@@ -145,4 +146,52 @@ export async function requireAdminSession(): Promise<AdminSession> {
     redirect("/admin/login");
   }
   return session as AdminSession;
+}
+
+export async function createStaffingSession(
+  session: StaffingSession
+): Promise<string> {
+  const token = await new SignJWT({ ...session })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("7d")
+    .sign(getSecret());
+
+  const cookieStore = await cookies();
+  cookieStore.set(STAFFING_SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: SESSION_MAX_AGE,
+    path: "/",
+  });
+
+  return token;
+}
+
+export async function getStaffingSession(): Promise<StaffingSession | null> {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(STAFFING_SESSION_COOKIE)?.value;
+    if (!token) return null;
+
+    const { payload } = await jwtVerify(token, getSecret());
+    return payload as unknown as StaffingSession;
+  } catch {
+    return null;
+  }
+}
+
+export async function destroyStaffingSession(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(STAFFING_SESSION_COOKIE);
+}
+
+export async function requireStaffingSession(): Promise<StaffingSession> {
+  const session = await getStaffingSession();
+  if (!session) {
+    const { redirect } = await import("next/navigation");
+    redirect("/staffing/login");
+  }
+  return session as StaffingSession;
 }
