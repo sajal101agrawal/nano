@@ -2,7 +2,7 @@ import { query } from "@/lib/db";
 import { formatDate, requirementStatusBadgeClass } from "@/lib/cn";
 import Link from "next/link";
 import DeleteButton from "@/components/admin/DeleteButton";
-import { Plus, ExternalLink, ChevronRight } from "lucide-react";
+import { Plus, ExternalLink, ChevronRight, Pencil } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -108,13 +108,13 @@ export default async function RequirementsPage({ searchParams }: PageProps) {
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wide">Status</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wide">Apps</th>
                 <th className="text-right px-5 py-3 text-xs font-medium text-text-muted uppercase tracking-wide hidden xl:table-cell">Created</th>
-                <th className="w-10 px-3 py-3" />
+                <th className="text-right px-3 py-3 text-xs font-medium text-text-muted uppercase tracking-wide w-20">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-16 text-center text-text-muted text-sm">
+                  <td colSpan={7} className="px-5 py-16 text-center text-text-muted text-sm">
                     No requirements found.{" "}
                     <Link href="/admin/requirements/new" className="text-primary hover:underline">Create one</Link>
                   </td>
@@ -167,12 +167,21 @@ export default async function RequirementsPage({ searchParams }: PageProps) {
                       <span className="text-xs text-text-muted">{formatDate(req.created_at)}</span>
                     </td>
                     <td className="px-3 py-3.5">
-                      <DeleteButton
-                        endpoint={`/api/admin/requirements/${req.id}`}
-                        entityLabel={req.title}
-                        confirmMessage={`Delete "${req.title}"? All applications linked to this job will also be deleted.`}
-                        redirectTo="/admin/requirements"
-                      />
+                      <div className="flex items-center justify-end gap-1">
+                        <Link
+                          href={`/admin/requirements/${req.id}/edit`}
+                          className="p-1.5 rounded-md text-text-muted hover:text-primary hover:bg-bg-hover transition-colors"
+                          title="Edit requirement"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Link>
+                        <DeleteButton
+                          endpoint={`/api/admin/requirements/${req.id}`}
+                          entityLabel={req.title}
+                          confirmMessage={`Delete "${req.title}"? All applications linked to this job will also be deleted.`}
+                          redirectTo="/admin/requirements"
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -206,6 +215,9 @@ export default async function RequirementsPage({ searchParams }: PageProps) {
                     </div>
                     <ChevronRight className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
                   </div>
+                </Link>
+                <Link href={`/admin/requirements/${req.id}/edit`} className="btn btn-secondary btn-sm shrink-0">
+                  Edit
                 </Link>
                 <DeleteButton
                   endpoint={`/api/admin/requirements/${req.id}`}
