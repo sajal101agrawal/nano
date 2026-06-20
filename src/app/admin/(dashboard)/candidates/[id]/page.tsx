@@ -10,9 +10,11 @@ import {
   cn,
 } from "@/lib/cn";
 import Link from "next/link";
+import { Fragment } from "react";
 import CandidateActions from "./CandidateActions";
 import CVViewer from "./CVViewer";
 import DeleteButton from "@/components/admin/DeleteButton";
+import { formatScreeningAnswer } from "@/lib/screening-answers";
 import type {
   Candidate,
   CandidateProfile,
@@ -85,7 +87,7 @@ export default async function CandidateDetailPage({
   );
   if (!candidate) notFound();
 
-  const [profile, skills, applications, availabilityEvents, outreachMessages] =
+  const [profile, skills, applications, availabilityEvents, outreachMessages, applicationAnswers] =
     await Promise.all([
       queryOne<CandidateProfile>(
         `SELECT * FROM candidate_profiles WHERE candidate_id = $1 AND is_current = TRUE`,
@@ -120,7 +122,36 @@ export default async function CandidateDetailPage({
          LIMIT 20`,
         [id]
       ),
+      query<{
+        application_id: string;
+        answer_value: unknown;
+        question_text: string;
+        question_type: string;
+        options?: { value: string; label: string }[];
+        sort_order: number;
+      }>(
+        `SELECT aa.application_id,
+                aa.answer_value,
+                rq.question_text,
+                rq.question_type,
+                rq.options,
+                rq.sort_order
+         FROM application_answers aa
+         JOIN requirement_questions rq ON rq.id = aa.question_id
+         JOIN applications a ON a.id = aa.application_id
+         WHERE a.candidate_id = $1
+         ORDER BY aa.application_id, rq.sort_order ASC`,
+        [id]
+      ),
     ]);
+
+  const answersByApplication = applicationAnswers.reduce<
+    Record<string, typeof applicationAnswers>
+  >((acc, row) => {
+    if (!acc[row.application_id]) acc[row.application_id] = [];
+    acc[row.application_id].push(row);
+    return acc;
+  }, {});
 
   const displayName =
     candidate.full_name || candidate.primary_email || "Unknown";
@@ -527,8 +558,11 @@ export default async function CandidateDetailPage({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {applications.map((app) => (
-                      <tr key={app.id} className="hover:bg-bg-hover transition-colors">
+                    {applications.map((app) => {
+                      const answers = answersByApplication[app.id] ?? [];
+                      return (
+                      <Fragment key={app.id}>
+                      <tr className="hover:bg-bg-hover transition-colors">
                         <td className="px-4 py-3">
                           <Link
                             href={`/admin/requirements/${app.requirement_id}`}
@@ -565,7 +599,30 @@ export default async function CandidateDetailPage({
                           />
                         </td>
                       </tr>
-                    ))}
+                      {answers.length > 0 && (
+                        <tr key={`${app.id}-answers`} className="bg-bg/50">
+                          <td colSpan={5} className="px-4 pb-4 pt-0">
+                            <div className="rounded-lg border border-border bg-bg px-4 py-3 space-y-2">
+                              <p className="text-[11px] font-medium text-text-dim uppercase tracking-wide">
+                                Screening answers
+                              </p>
+                              <div className="space-y-2">
+                                {answers.map((a, idx) => (
+                                  <div key={`${a.application_id}-${idx}`} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-4">
+                                    <p className="text-xs text-text-dim sm:w-2/5 shrink-0">{a.question_text}</p>
+                                    <p className="text-sm text-text-light sm:flex-1">
+                                      {formatScreeningAnswer(a.answer_value, a)}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
