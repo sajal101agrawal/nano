@@ -104,9 +104,6 @@ function UploadStep({
         <h2 className="font-display text-xl font-bold text-text-light tracking-tight mb-1.5">
           Upload your resume
         </h2>
-        <p className="text-sm text-text-dim leading-relaxed">
-          We will extract your details automatically. No account needed.
-        </p>
       </div>
 
       <div
@@ -338,9 +335,9 @@ function DetailsStep({
         <div>
           <label className="block text-[12px] font-medium text-text-dim mb-1.5">
             Email address <span className="text-red-400">*</span>
-            {parsedInfo.email && (
+            {/* {parsedInfo.email && (
               <span className="text-text-muted font-normal ml-1.5">(from resume)</span>
-            )}
+            )} */}
           </label>
           <input
             type="email"
@@ -360,9 +357,9 @@ function DetailsStep({
           <label className="block text-[12px] font-medium text-text-dim mb-1.5">
             Phone number
             <span className="text-text-muted font-normal ml-1.5">(optional)</span>
-            {parsedInfo.phone && (
+            {/* {parsedInfo.phone && (
               <span className="text-text-muted font-normal ml-1">&mdash; from resume</span>
-            )}
+            )} */}
           </label>
           <input
             type="tel"
@@ -376,9 +373,9 @@ function DetailsStep({
           {phone.trim() && !phoneValid && (
             <p className="text-[11px] text-red-400 mt-1">Enter a valid phone number</p>
           )}
-          {phone.trim() && phoneValid && phone.includes("+") && (
+          {/* {phone.trim() && phoneValid && phone.includes("+") && (
             <p className="text-[11px] text-text-muted mt-1">Formatted with country code</p>
-          )}
+          )} */}
         </div>
       </div>
 
@@ -911,6 +908,7 @@ function DoneStep({ title }: { title: string }) {
 
 export default function ApplicationFlow({ requirement, questions }: Props) {
   const searchParams = useSearchParams();
+  const hasScreeningQuestions = questions.length > 0;
   const [step, setStep] = useState<FlowStep>("upload");
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -985,8 +983,17 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
             }
 
             // Advance to saved step
-            const targetStep = (urlStep || d.step) as FlowStep;
-            if (targetStep === "details" || targetStep === "preferences") {
+            let targetStep = (urlStep || d.step) as FlowStep;
+            if (targetStep === "preferences" && hasScreeningQuestions) {
+              targetStep = "questions";
+            } else if (targetStep === "questions" && !hasScreeningQuestions) {
+              targetStep = "preferences";
+            }
+            if (
+              targetStep === "details" ||
+              targetStep === "preferences" ||
+              targetStep === "questions"
+            ) {
               setStep(targetStep);
             } else {
               setStep("details");
@@ -996,7 +1003,7 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
         .catch(() => {})
         .finally(() => setLoading(false));
     }
-  }, [searchParams]);
+  }, [searchParams, hasScreeningQuestions]);
 
   const handleAnswerChange = useCallback((id: string, value: string | boolean) => {
     setAnswers((prev) => ({ ...prev, [id]: value }));
@@ -1052,19 +1059,27 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
   };
 
   const handleDetailsContinue = () => {
-    setStep("preferences");
-    updateUrl(draftId, "preferences");
+    const nextStep: FlowStep = hasScreeningQuestions ? "questions" : "preferences";
+    setStep(nextStep);
+    updateUrl(draftId, nextStep);
     if (draftId) {
       saveDraftProgress(draftId, {
         candidateName: candidateName.trim(),
         candidateEmail: candidateEmail.trim(),
         candidatePhone: candidatePhone.trim(),
-        step: "preferences",
+        step: nextStep,
       });
     }
   };
 
   const handlePreferencesContinue = () => {
+    if (draftId) {
+      saveDraftProgress(draftId, { preferences, step: "submitting" });
+    }
+    handleFinalSubmit();
+  };
+
+  const handleQuestionsContinue = () => {
     if (draftId) {
       saveDraftProgress(draftId, { preferences, step: "submitting" });
     }
@@ -1100,7 +1115,7 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
 
       if (!data.success) {
         setSubmitError(data.error || "Submission failed. Please try again.");
-        setStep("preferences");
+        setStep(hasScreeningQuestions ? "questions" : "preferences");
         setSubmitting(false);
         return;
       }
@@ -1108,7 +1123,7 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
       setStep("done");
     } catch {
       setSubmitError("Network error. Please try again.");
-      setStep("preferences");
+      setStep(hasScreeningQuestions ? "questions" : "preferences");
     } finally {
       setSubmitting(false);
     }
@@ -1131,7 +1146,7 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
   const currentStepIndex =
     step === "upload" ? 0
     : step === "details" ? 1
-    : step === "preferences" ? 2
+    : step === "preferences" || step === "questions" ? 2
     : step === "submitting" ? 2
     : 0;
 
@@ -1165,11 +1180,22 @@ export default function ApplicationFlow({ requirement, questions }: Props) {
         />
       )}
 
-      {step === "preferences" && (
+      {step === "preferences" && !hasScreeningQuestions && (
         <PreferencesStep
           preferences={preferences}
           onPreferencesChange={setPreferences}
           onContinue={handlePreferencesContinue}
+          submitting={submitting}
+          submitError={submitError}
+        />
+      )}
+
+      {step === "questions" && hasScreeningQuestions && (
+        <QuestionsStep
+          questions={questions}
+          answers={answers}
+          onAnswerChange={handleAnswerChange}
+          onSubmit={handleQuestionsContinue}
           submitting={submitting}
           submitError={submitError}
         />

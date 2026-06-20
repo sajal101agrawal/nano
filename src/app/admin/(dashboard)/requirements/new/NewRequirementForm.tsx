@@ -88,23 +88,53 @@ function RadioPill({
   );
 }
 
-export default function NewRequirementForm({ clients }: { clients: Client[] }) {
+export default function NewRequirementForm({
+  clients,
+  requirement,
+  initialQuestions,
+}: {
+  clients: Client[];
+  requirement?: Requirement & { client_name?: string };
+  initialQuestions?: ScreeningQuestion[];
+}) {
   const router = useRouter();
   const newQRef = useRef<HTMLInputElement>(null);
+  const isEditMode = !!requirement;
 
-  const [title, setTitle] = useState("");
-  const [jdRaw, setJdRaw] = useState("");
-  const [clientId, setClientId] = useState("");
+  const [title, setTitle] = useState(requirement?.title ?? "");
+  const [jdRaw, setJdRaw] = useState(requirement?.jd_raw ?? "");
+  const [clientId, setClientId] = useState(requirement?.client_id ?? "");
   const [newClientName, setNewClientName] = useState("");
   const [isNewClient, setIsNewClient] = useState(false);
-  const [engagementType, setEngagementType] = useState<EngagementType>("both");
-  const [workMode, setWorkMode] = useState<WorkMode>("");
-  const [location, setLocation] = useState("");
-  const [budgetMin, setBudgetMin] = useState("");
-  const [budgetMax, setBudgetMax] = useState("");
-  const [budgetCurrency, setBudgetCurrency] = useState("INR");
-  const [budgetPeriod, setBudgetPeriod] = useState<BudgetPeriod>("monthly");
-  const [questions, setQuestions] = useState<ScreeningQuestion[]>(DEFAULT_QUESTIONS);
+  const [engagementType, setEngagementType] = useState<EngagementType>(
+    (requirement?.engagement_type as EngagementType) ?? "both"
+  );
+  const [workMode, setWorkMode] = useState<WorkMode>(
+    (requirement?.work_mode as WorkMode) ?? ""
+  );
+  const [location, setLocation] = useState(requirement?.location ?? "");
+  const [budgetMin, setBudgetMin] = useState(
+    requirement?.budget_min != null ? String(requirement.budget_min) : ""
+  );
+  const [budgetMax, setBudgetMax] = useState(
+    requirement?.budget_max != null ? String(requirement.budget_max) : ""
+  );
+  const [budgetCurrency, setBudgetCurrency] = useState(requirement?.budget_currency ?? "INR");
+  const [budgetPeriod, setBudgetPeriod] = useState<BudgetPeriod>(
+    (requirement?.budget_period as BudgetPeriod) ?? "monthly"
+  );
+  const [questions, setQuestions] = useState<ScreeningQuestion[]>(
+    initialQuestions !== undefined
+      ? initialQuestions.map((q) => ({
+          id: q.id,
+          question_text: q.question_text,
+          question_type: q.question_type,
+          options: q.options,
+          required: q.required,
+          sort_order: q.sort_order,
+        }))
+      : DEFAULT_QUESTIONS
+  );
   const [newQuestion, setNewQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,8 +213,29 @@ export default function NewRequirementForm({ clients }: { clients: Client[] }) {
         budget_max: budgetMax ? parseFloat(budgetMax) : undefined,
         budget_currency: budgetCurrency,
         budget_period: budgetPeriod,
-        screening_questions: questions,
+        screening_questions: questions.map(({ question_text, question_type, options, required, sort_order }) => ({
+          question_text,
+          question_type,
+          options,
+          required,
+          sort_order,
+        })),
       };
+
+      if (isEditMode) {
+        const res = await fetch(`/api/admin/requirements/${requirement!.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json() as { success: boolean; data?: Requirement; error?: string };
+        if (!res.ok || !data.success) throw new Error(data.error || "Failed to update requirement");
+
+        router.push(`/admin/requirements/${requirement!.id}`);
+        router.refresh();
+        return;
+      }
 
       const res = await fetch("/api/admin/requirements", {
         method: "POST",
@@ -543,26 +594,28 @@ export default function NewRequirementForm({ clients }: { clients: Client[] }) {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              Creating...
+              {isEditMode ? "Saving..." : "Creating..."}
             </>
           ) : (
             <>
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                <path strokeLinecap="round" strokeLinejoin="round" d={isEditMode ? "M5 13l4 4L19 7" : "M12 4v16m8-8H4"} />
               </svg>
-              Create Requirement
+              {isEditMode ? "Save Changes" : "Create Requirement"}
             </>
           )}
         </button>
         <a
-          href="/admin/requirements"
+          href={isEditMode ? `/admin/requirements/${requirement!.id}` : "/admin/requirements"}
           className="btn btn-secondary h-11 px-6 text-sm"
         >
           Cancel
         </a>
-        <p className="ml-auto text-xs text-text-dim hidden sm:block">
-          AI matching will run automatically after creation
-        </p>
+        {!isEditMode && (
+          <p className="ml-auto text-xs text-text-dim hidden sm:block">
+            AI matching will run automatically after creation
+          </p>
+        )}
       </div>
     </form>
   );

@@ -182,7 +182,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ];
 
     const questionsToInsert =
-      screening_questions && screening_questions.length > 0
+      screening_questions !== undefined
         ? screening_questions.map((q, i) => ({
             id: uuidv4(),
             requirement_id: requirementId,

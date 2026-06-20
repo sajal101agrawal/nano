@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession, getAdminSession } from "@/lib/auth";
-import { query, queryOne } from "@/lib/db";
+import { query, queryOne, transaction } from "@/lib/db";
 import { auditLog } from "@/lib/utils";
 import { extractJDRequirements } from "@/lib/ai";
 import { generateEmbedding, storeRequirementEmbedding } from "@/lib/embeddings";
 import type { Requirement, RequirementQuestion, Application, ApiResponse } from "@/types";
+import { v4 as uuidv4 } from "uuid";
 
 type RequirementDetail = Requirement & {
   client_name?: string;
@@ -79,6 +80,13 @@ export async function PATCH(
       budget_currency: string;
       budget_period: string;
       client_id: string;
+      screening_questions: Array<{
+        question_text: string;
+        question_type: string;
+        options?: { value: string; label: string }[];
+        required: boolean;
+        sort_order: number;
+      }>;
     }>;
 
     const existing = await queryOne<Requirement>(
@@ -90,38 +98,87 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
     }
 
+    const { screening_questions, ...requirementFields } = body;
+
     const setClauses: string[] = [];
     const values: unknown[] = [];
 
-    const allowedFields: (keyof typeof body)[] = [
+    const allowedFields: (keyof typeof requirementFields)[] = [
       "title", "jd_raw", "status", "work_mode", "location",
       "engagement_type", "budget_min", "budget_max", "budget_currency",
       "budget_period", "client_id",
     ];
 
     for (const field of allowedFields) {
-      if (body[field] !== undefined) {
-        values.push(body[field]);
+      if (requirementFields[field] !== undefined) {
+        values.push(requirementFields[field]);
         setClauses.push(`${field} = $${values.length}`);
       }
     }
 
-    if (setClauses.length === 0) {
+    const hasRequirementUpdates = setClauses.length > 0;
+    const hasQuestionUpdates = screening_questions !== undefined;
+
+    if (!hasRequirementUpdates && !hasQuestionUpdates) {
       return NextResponse.json({ success: false, error: "No fields to update" }, { status: 400 });
     }
 
-    values.push(new Date().toISOString(), id);
-    setClauses.push(`updated_at = $${values.length - 1}`);
+    let updated: Requirement | null = existing;
 
-    const updated = await queryOne<Requirement>(
-      `UPDATE requirements SET ${setClauses.join(", ")} WHERE id = $${values.length} RETURNING *`,
-      values
-    );
+    if (hasRequirementUpdates || hasQuestionUpdates) {
+      updated = await transaction(async (client) => {
+        let requirementRow = existing;
+
+        if (hasRequirementUpdates) {
+          values.push(new Date().toISOString(), id);
+          setClauses.push(`updated_at = $${values.length - 1}`);
+
+          const reqResult = await client.query<Requirement>(
+            `UPDATE requirements SET ${setClauses.join(", ")} WHERE id = $${values.length} RETURNING *`,
+            values
+          );
+          requirementRow = reqResult.rows[0];
+        }
+
+        if (hasQuestionUpdates) {
+          await client.query(
+            "DELETE FROM requirement_questions WHERE requirement_id = $1",
+            [id]
+          );
+
+          for (const [i, q] of screening_questions!.entries()) {
+            await client.query(
+              `INSERT INTO requirement_questions (id, requirement_id, question_text, question_type, options, required, sort_order)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+              [
+                uuidv4(),
+                id,
+                q.question_text,
+                q.question_type,
+                q.options ? JSON.stringify(q.options) : null,
+                q.required,
+                q.sort_order ?? i + 1,
+              ]
+            );
+          }
+
+          if (!hasRequirementUpdates) {
+            const reqResult = await client.query<Requirement>(
+              "UPDATE requirements SET updated_at = $1 WHERE id = $2 RETURNING *",
+              [new Date().toISOString(), id]
+            );
+            requirementRow = reqResult.rows[0];
+          }
+        }
+
+        return requirementRow;
+      });
+    }
 
     // If JD changed, re-extract and re-embed asynchronously
-    if (body.jd_raw && body.jd_raw !== existing.jd_raw) {
+    if (requirementFields.jd_raw && requirementFields.jd_raw !== existing.jd_raw) {
       Promise.all([
-        extractJDRequirements(body.jd_raw)
+        extractJDRequirements(requirementFields.jd_raw)
           .then(async (parsed) => {
             await query(
               `UPDATE requirements SET parsed_requirements_json = $1, required_skills = $2, min_experience = $3 WHERE id = $4`,
@@ -129,7 +186,7 @@ export async function PATCH(
             );
           })
           .catch(console.error),
-        generateEmbedding(body.jd_raw)
+        generateEmbedding(requirementFields.jd_raw)
           .then((emb) => storeRequirementEmbedding(id, emb))
           .catch(console.error),
       ]);
