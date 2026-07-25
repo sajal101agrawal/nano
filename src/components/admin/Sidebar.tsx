@@ -20,6 +20,8 @@ import {
   FileX2,
   Building2,
   Layers,
+  Calendar,
+  AlarmClock,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { AdminSession } from "@/types";
@@ -31,6 +33,8 @@ const navGroups = [
       { label: "Dashboard", href: "/admin", icon: LayoutDashboard, exact: true },
       { label: "Requirements", href: "/admin/requirements", icon: Briefcase },
       { label: "Candidates", href: "/admin/candidates", icon: Users },
+      { label: "Interviews", href: "/admin/interviews", icon: Calendar },
+      { label: "Reminders", href: "/admin/reminders", icon: AlarmClock },
       { label: "Talent Pool", href: "/admin/pool", icon: Layers },
       { label: "Incomplete", href: "/admin/drafts", icon: FileX2 },
     ],

@@ -7,16 +7,16 @@ import { Plus, ExternalLink, ChevronRight, Pencil } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ status?: string; page?: string }>;
+  searchParams: Promise<{ status?: string; page?: string; my_jobs?: string }>;
 }
 
 function StatusTabs({ current }: { current?: string }) {
   const tabs = [
-    { label: "All", value: "" },
-    { label: "Open", value: "open" },
-    { label: "On Hold", value: "on_hold" },
-    { label: "Filled", value: "filled" },
-    { label: "Closed", value: "closed" },
+    { label: "All", value: "", myJobs: false },
+    { label: "Open", value: "open", myJobs: false },
+    { label: "On Hold", value: "on_hold", myJobs: false },
+    { label: "Filled", value: "filled", myJobs: false },
+    { label: "Closed", value: "closed", myJobs: false },
   ];
   return (
     <div className="flex gap-1 p-1 bg-bg-tertiary border border-border rounded-lg w-fit flex-wrap">
@@ -39,7 +39,8 @@ function StatusTabs({ current }: { current?: string }) {
 }
 
 export default async function RequirementsPage({ searchParams }: PageProps) {
-  const { status, page: pageParam } = await searchParams;
+  const { status, page: pageParam, my_jobs } = await searchParams;
+  const myJobs = my_jobs === "true";
   const page = Math.max(1, parseInt(pageParam || "1"));
   const limit = 20;
   const offset = (page - 1) * limit;
@@ -49,6 +50,11 @@ export default async function RequirementsPage({ searchParams }: PageProps) {
   if (status) {
     params.push(status);
     where += ` AND r.status = $${params.length}`;
+  }
+  if (myJobs) {
+    // Will use session userId - for server component we need the session
+    // For now add a placeholder join that can be populated by the API
+    where += ` AND EXISTS (SELECT 1 FROM job_assignments ja WHERE ja.requirement_id = r.id)`;
   }
 
   const [rows, countRows] = await Promise.all([

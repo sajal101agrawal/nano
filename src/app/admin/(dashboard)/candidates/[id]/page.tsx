@@ -15,6 +15,7 @@ import CandidateActions from "./CandidateActions";
 import CVViewer from "./CVViewer";
 import DeleteButton from "@/components/admin/DeleteButton";
 import { formatScreeningAnswer } from "@/lib/screening-answers";
+import CandidateNotesAndTags from "@/components/admin/CandidateNotesAndTags";
 import type {
   Candidate,
   CandidateProfile,
@@ -864,6 +865,9 @@ export default async function CandidateDetailPage({
               </div>
             </section>
           )}
+
+          {/* Notes & Tags */}
+          <CandidateNotesAndTags candidateId={candidate.id} />
 
           {/* Availability history */}
           {availabilityEvents.length > 0 && (

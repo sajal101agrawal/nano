@@ -13,14 +13,30 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const req = await queryOne<Requirement>(
-    "SELECT title FROM requirements WHERE public_slug = $1 AND status = 'open'",
+  const req = await queryOne<Requirement & { client_name?: string }>(
+    `SELECT r.*, c.company_name AS client_name
+     FROM requirements r LEFT JOIN clients c ON c.id = r.client_id
+     WHERE r.public_slug = $1 AND r.status = 'open'`,
     [slug]
   );
   if (!req) return { title: "Position Not Available — Sajal Tech Careers" };
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const description = [
+    `${req.engagement_type === "contract" ? "Contract" : req.engagement_type === "fulltime" ? "Full-time" : "Contract/Full-time"} position`,
+    req.work_mode && `· ${req.work_mode}`,
+    req.location && `in ${req.location}`,
+    "· Quick application, no login required.",
+  ].filter(Boolean).join(" ");
   return {
     title: `${req.title} — Sajal Tech Careers`,
-    description: `Apply for ${req.title} at Sajal Tech. Quick application, no login required.`,
+    description,
+    openGraph: {
+      title: `${req.title}`,
+      description,
+      url: `${appUrl}/jobs/${req.public_slug}`,
+      type: "website",
+    },
+    twitter: { card: "summary", title: req.title, description },
   };
 }
 
@@ -91,10 +107,19 @@ export default async function JobDetailPage({ params }: PageProps) {
     );
   }
 
-  const questions = await query<RequirementQuestion>(
-    "SELECT * FROM requirement_questions WHERE requirement_id = $1 ORDER BY sort_order ASC",
-    [req.id]
-  );
+  const [questions, similarJobs] = await Promise.all([
+    query<RequirementQuestion>(
+      "SELECT * FROM requirement_questions WHERE requirement_id = $1 ORDER BY sort_order ASC",
+      [req.id]
+    ),
+    query<{ id: string; title: string; public_slug: string; work_mode: string | null; engagement_type: string }>(
+      `SELECT id, title, public_slug, work_mode, engagement_type
+       FROM requirements
+       WHERE status = 'open' AND id != $1
+       ORDER BY created_at DESC LIMIT 3`,
+      [req.id]
+    ),
+  ]);
 
   return (
     <div className="min-h-screen bg-bg">
@@ -144,10 +169,43 @@ export default async function JobDetailPage({ params }: PageProps) {
           </h1>
         </div>
 
-        {/* Job description */}
+        {/* Application section — shown first */}
+        <div className="animate-fade-up" style={{ animationDelay: "50ms" }}>
+          <div className="mb-10">
+            <div className="flex items-center gap-2 mb-6">
+              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-primary">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+              </div>
+              <h2 className="font-display text-lg font-semibold text-text-light tracking-tight">
+                Apply now
+              </h2>
+            </div>
+            <ApplicationFlow requirement={req} questions={questions} />
+          </div>
+        </div>
+
+        {/* Job description — shown below the apply form */}
         {req.jd_raw && (
-          <div className="mb-10 animate-fade-up" style={{ animationDelay: "50ms" }}>
-            <div className="bg-bg-secondary border border-border rounded-xl p-5 sm:p-6 max-h-[50vh] overflow-y-auto">
+          <div className="border-t border-border pt-8 animate-fade-up" style={{ animationDelay: "100ms" }}>
+            <h2 className="font-display text-base font-semibold text-text-light mb-4">About this role</h2>
+
+            {(req.required_skills?.length ?? 0) > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-5">
+                {req.required_skills!.map((s) => (
+                  <span
+                    key={s}
+                    className="text-[11px] text-primary/80 bg-primary/[0.06] border border-primary/[0.12] rounded-full px-2.5 py-0.5 font-medium"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="bg-bg-secondary border border-border rounded-xl p-5 sm:p-6 max-h-[60vh] overflow-y-auto">
               <div className="prose-jd">
                 {req.jd_raw.split("\n").map((line, i) => {
                   const trimmed = line.trim();
@@ -167,39 +225,26 @@ export default async function JobDetailPage({ params }: PageProps) {
                 })}
               </div>
             </div>
-
-            {(req.required_skills?.length ?? 0) > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-4">
-                {req.required_skills!.map((s) => (
-                  <span
-                    key={s}
-                    className="text-[11px] text-primary/80 bg-primary/[0.06] border border-primary/[0.12] rounded-full px-2.5 py-0.5 font-medium"
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
         )}
-
-        {/* Application section */}
-        <div className="animate-fade-up" style={{ animationDelay: "100ms" }}>
-          <div className="border-t border-border pt-8">
-            <div className="flex items-center gap-2 mb-6">
-              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-primary">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-              </div>
-              <h2 className="font-display text-lg font-semibold text-text-light tracking-tight">
-                Apply now
-              </h2>
+        {/* Similar Jobs */}
+        {similarJobs.length > 0 && (
+          <div className="mt-12 pt-8 border-t border-border animate-fade-up" style={{ animationDelay: "400ms" }}>
+            <h2 className="font-display text-base font-semibold text-text-light mb-4">Other Open Positions</h2>
+            <div className="space-y-2">
+              {similarJobs.map((job) => (
+                <Link key={job.id} href={`/jobs/${job.public_slug}`}
+                  className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-border bg-bg-secondary hover:border-primary/30 hover:bg-primary/3 transition-all group">
+                  <span className="text-sm font-medium text-text-light group-hover:text-primary transition-colors">{job.title}</span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {job.work_mode && <span className="text-xs text-text-muted capitalize">{job.work_mode}</span>}
+                    <svg className="w-4 h-4 text-text-muted group-hover:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  </div>
+                </Link>
+              ))}
             </div>
-            <ApplicationFlow requirement={req} questions={questions} />
           </div>
-        </div>
+        )}
       </main>
     </div>
   );

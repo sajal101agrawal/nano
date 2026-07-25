@@ -68,7 +68,7 @@ export default async function RequirementDetailPage({
        JOIN candidates c ON c.id = a.candidate_id
        LEFT JOIN matches m ON m.requirement_id = a.requirement_id AND m.candidate_id = a.candidate_id
        WHERE a.requirement_id = $1
-       ORDER BY a.applied_at DESC`,
+       ORDER BY a.seen_at ASC NULLS FIRST, a.applied_at DESC`,
       [id]
     ),
     query<MatchWithCandidate>(

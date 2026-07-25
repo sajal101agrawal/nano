@@ -55,11 +55,16 @@ export async function GET(req: NextRequest) {
     const availability = searchParams.get("availability") || "";
     const contract = searchParams.get("contract");
     const minExp = searchParams.get("min_experience");
+    const maxExp = searchParams.get("max_experience");
+    const skills = searchParams.get("skills") || ""; // comma-separated skills
+    const source = searchParams.get("source") || "";
+    const workMode = searchParams.get("work_mode") || "";
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20")));
     const offset = (page - 1) * limit;
 
     const buildFilterConditions = (params: unknown[], baseConditions: string[], startIdx: number) => {
+      const offset = startIdx + params.length - 1;
       if (availability && availability !== "all") {
         params.push(availability);
         baseConditions.push(`c.availability_status = $${startIdx + params.length - 1}`);
@@ -74,6 +79,28 @@ export async function GET(req: NextRequest) {
           baseConditions.push(`c.total_experience_years >= $${startIdx + params.length - 1}`);
         }
       }
+      if (maxExp) {
+        const exp = parseInt(maxExp);
+        if (!isNaN(exp)) {
+          params.push(exp);
+          baseConditions.push(`c.total_experience_years <= $${startIdx + params.length - 1}`);
+        }
+      }
+      if (source) {
+        params.push(source);
+        baseConditions.push(`c.source = $${startIdx + params.length - 1}`);
+      }
+      // skills filter: candidate must have at least one of the requested skills
+      if (skills) {
+        const skillList = skills.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+        if (skillList.length > 0) {
+          params.push(`%${skillList[0]}%`);
+          baseConditions.push(
+            `EXISTS (SELECT 1 FROM candidate_skills cs WHERE cs.candidate_id = c.id AND LOWER(cs.skill) LIKE $${startIdx + params.length - 1})`
+          );
+        }
+      }
+      void offset; // suppress unused warning
     };
 
     if (q) {

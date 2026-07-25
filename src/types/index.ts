@@ -221,11 +221,138 @@ export interface Application {
   candidate_id: string;
   profile_id?: string;
   status: ApplicationStatus;
+  pipeline_stage_id?: string;
   match_score?: number;
   vector_score?: number;
   rule_score?: number;
   match_rationale?: string;
+  rating?: number;
+  seen_at?: string;
   applied_at: string;
+  updated_at: string;
+}
+
+export interface ApplicationActivityLog {
+  id: string;
+  application_id: string;
+  requirement_id: string;
+  candidate_id: string;
+  actor_id?: string;
+  actor_name?: string;
+  action: string;
+  old_value?: string;
+  new_value?: string;
+  note?: string;
+  created_at: string;
+}
+
+export interface CandidateNote {
+  id: string;
+  candidate_id: string;
+  application_id?: string;
+  requirement_id?: string;
+  author_id?: string;
+  author_name?: string;
+  body: string;
+  visibility: "private" | "team";
+  pinned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CandidateTag {
+  id: string;
+  candidate_id: string;
+  tag: string;
+  color: string;
+  created_by?: string;
+  created_at: string;
+}
+
+export interface PipelineStage {
+  id: string;
+  requirement_id?: string;
+  name: string;
+  color: string;
+  sort_order: number;
+  maps_to_status?: string;
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface Interview {
+  id: string;
+  application_id: string;
+  requirement_id: string;
+  candidate_id: string;
+  interview_type: "video" | "phone" | "onsite" | "technical" | "hr";
+  round_number: number;
+  scheduled_at?: string;
+  duration_minutes: number;
+  location?: string;
+  status: "scheduled" | "completed" | "cancelled" | "no_show";
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  interviewers?: InterviewInterviewer[];
+  scorecard?: InterviewScorecard;
+}
+
+export interface InterviewInterviewer {
+  id: string;
+  interview_id: string;
+  user_id: string;
+  user_name?: string;
+  response_status: "pending" | "accepted" | "declined";
+  created_at: string;
+}
+
+export interface InterviewScorecard {
+  id: string;
+  interview_id: string;
+  interviewer_id: string;
+  criteria_json?: Array<{ name: string; rating: number; comment?: string }>;
+  overall_rating?: number;
+  recommendation?: "strong_yes" | "yes" | "maybe" | "no" | "strong_no";
+  notes?: string;
+  submitted_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FollowUpReminder {
+  id: string;
+  candidate_id: string;
+  application_id?: string;
+  requirement_id?: string;
+  created_by: string;
+  assigned_to?: string;
+  note?: string;
+  due_at: string;
+  completed_at?: string;
+  created_at: string;
+}
+
+export interface TalentPool {
+  id: string;
+  name: string;
+  description?: string;
+  created_by?: string;
+  member_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedSearch {
+  id: string;
+  user_id: string;
+  name: string;
+  query_params_json: Record<string, unknown>;
+  notify_on_new_match: boolean;
+  last_checked_at?: string;
+  last_match_count?: number;
+  created_at: string;
   updated_at: string;
 }
 

@@ -25,6 +25,20 @@ Nano is a full-stack staff augmentation talent platform. It combines a public-fa
 **For recruiters (admin)**
 - Manage candidates, requirements, clients, and applications from `/admin`
 - Review AI-ranked matches with scores and rationale for every open role
+- **Application pipeline management**: Kanban board view with drag-and-drop stage transitions per job
+- **Seen/unseen tracking**: new applications highlighted with a blue dot; mark seen/unseen per application
+- **Inline status changes**: change application status, rating (1-5 stars), and pipeline stage directly from the applications table
+- **Bulk actions**: select multiple applications to change status or export to CSV
+- **Advanced candidate filters**: filter by availability, experience range, skills, source, and work mode preference
+- **Candidate notes & tags**: add private/visible notes and color-coded tags to any candidate profile
+- **Interview scheduling**: schedule video/phone/onsite interviews, manage interviewers, record scorecards — all from `/admin/interviews`
+- **Follow-up reminders**: set time-based reminders on candidates; overdue reminders surfaced on the dashboard
+- **Funnel analytics per job**: status funnel chart, daily application volume, and source breakdown
+- **Pipeline health dashboard**: open jobs with stage-by-stage counts on the main dashboard
+- **CSV candidate import**: upload a CSV, map columns visually, preview before importing
+- **Application status page for candidates**: shareable `/application/[token]` URL with visual progress tracker
+- **Saved searches**: save candidate search queries for reuse
+- **Talent pools**: maintain named candidate lists
 - Send templated outreach emails with delivery tracking
 - Source external prospects via Apollo.io search and enrichment
 - Export client-ready redacted CVs with agency branding
@@ -165,7 +179,7 @@ nano/
 │   ├── lib/                    # Core business logic (ai, auth, db, email, queue, storage)
 │   ├── worker/                 # BullMQ worker and processors
 │   └── types/                  # Shared TypeScript types
-├── migrations/                 # SQL migrations (001–008)
+├── migrations/                 # SQL migrations (001–009_recruiter_features)
 ├── scripts/                    # migrate, seed, init-bucket, start
 ├── docs/                       # Platform documentation
 ├── docker-compose.yml          # Postgres, Redis, MinIO, app

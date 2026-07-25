@@ -24,6 +24,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const offset = (page - 1) * limit;
     const status = searchParams.get("status");
     const q = searchParams.get("q");
+    const myJobs = searchParams.get("my_jobs") === "true";
 
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -36,6 +37,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (q) {
       params.push(`%${q}%`);
       conditions.push(`(r.title ILIKE $${params.length} OR c.company_name ILIKE $${params.length})`);
+    }
+
+    if (myJobs && session.userId) {
+      params.push(session.userId);
+      conditions.push(`EXISTS (SELECT 1 FROM job_assignments ja WHERE ja.requirement_id = r.id AND ja.user_id = $${params.length})`);
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
